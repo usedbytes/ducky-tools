@@ -9,6 +9,7 @@ import (
 	"math"
 	"regexp"
 	"strconv"
+	"strings"
 	"unicode/utf16"
 
 	"github.com/pkg/errors"
@@ -48,14 +49,18 @@ func utf16BytesToString(a []byte) (string, error) {
 }
 
 func readString(b []byte, maxLen int, wide bool) string {
+	var s string
 	if wide {
-		s, err := utf16BytesToString(b[:maxLen])
+		var err error
+		s, err = utf16BytesToString(b[:maxLen])
 		if err != nil {
 			fmt.Println("WARNING: Failed parsing wide string", err)
 		}
-		return s
+	} else {
+		s = string(b[:maxLen])
 	}
-	return string(b[:maxLen])
+
+	return strings.TrimRight(s, "\x00")
 }
 
 type IAPVersion struct {
