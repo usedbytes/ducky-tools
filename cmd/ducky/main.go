@@ -78,6 +78,25 @@ func readAndDecodeHeader(f *os.File, version *Version) (*fileHeader, error) {
 	return hdr, nil
 }
 
+func readRawChunk(f *os.File, version *Version, num int, fileKey [4]byte) ([]byte, error) {
+	_, err := f.Seek(-int64(version.headerLen+version.chunkLen*num), 2)
+	if err != nil {
+		return nil, errors.Wrap(err, "Seeking chunk")
+	}
+
+	rawData := make([]byte, version.chunkLen)
+	n, err := f.Read(rawData)
+	if n != len(rawData) || err != nil {
+		return nil, errors.Wrap(err, "Reading chunk")
+	}
+
+	for i, _ := range rawData {
+		rawData[i] = rawData[i] ^ fileKey[i%4] ^ byte(i)
+	}
+
+	return rawData, nil
+}
+
 func run(ctx *cli.Context) error {
 	vstr := ctx.String("version")
 	version := versions[vstr]
@@ -101,6 +120,20 @@ func run(ctx *cli.Context) error {
 	}
 
 	log.Println(hex.Dump(hdr.rawData))
+
+	chunk1, err := readRawChunk(f, version, 1, hdr.fileKey)
+	if err != nil {
+		return err
+	}
+
+	log.Println(hex.Dump(chunk1))
+
+	chunk2, err := readRawChunk(f, version, 2, hdr.fileKey)
+	if err != nil {
+		return err
+	}
+
+	log.Println(hex.Dump(chunk2))
 
 	return nil
 }
