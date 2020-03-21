@@ -62,9 +62,10 @@ func hexByteString(a []byte) string {
 }
 
 type Update struct {
-	version                  *Version
-	fileHdr                  *fileHeader
-	internalHdr, externalHdr *imageHeader
+	version  *Version
+	fileHdr  *fileHeader
+	imageHdr [2]*imageHeader
+	image    [2]*FWBlob
 }
 
 type ImageNumber int
@@ -132,10 +133,41 @@ func (u *Update) loadImageHeader(f *os.File, num ImageNumber) error {
 	}
 
 	switch num {
-	case Internal:
-		u.internalHdr = hdr
-	case External:
-		u.externalHdr = hdr
+	case Internal, External:
+		u.imageHdr[num] = hdr
+	default:
+		return fmt.Errorf("Unrecognised image number")
+	}
+
+	return nil
+}
+
+func (u *Update) loadImage(f *os.File, num ImageNumber) error {
+
+	offs := int64(len(u.fileHdr.rawData) + len(u.imageHdr[Internal].rawData) + len(u.imageHdr[External].rawData))
+	for i := 0; i <= int(num); i++ {
+		offs += int64(u.imageHdr[i].size)
+	}
+
+	_, err := f.Seek(-offs, 2)
+	if err != nil {
+		return errors.Wrap(err, "Seeking image blob")
+	}
+
+	rawData := make([]byte, u.imageHdr[num].size)
+	n, err := f.Read(rawData)
+	if n != len(rawData) || err != nil {
+		return errors.Wrap(err, "Reading image blob")
+	}
+
+	blob, err := newFWBlob(rawData, u.fileHdr.fileKey)
+	if err != nil {
+		return errors.Wrap(err, "Parsing image blob")
+	}
+
+	switch num {
+	case Internal, External:
+		u.image[num] = blob
 	default:
 		return fmt.Errorf("Unrecognised image number")
 	}
@@ -157,14 +189,26 @@ func (u *Update) Load(f *os.File) error {
 		return err
 	}
 
-	log.Println(hex.Dump(u.internalHdr.rawData))
+	log.Println(hex.Dump(u.imageHdr[Internal].rawData))
 
 	err = u.loadImageHeader(f, External)
 	if err != nil {
 		return err
 	}
 
-	log.Println(hex.Dump(u.externalHdr.rawData))
+	log.Println(hex.Dump(u.imageHdr[External].rawData))
+
+	err = u.loadImage(f, Internal)
+	if err != nil {
+		return err
+	}
+
+	log.Println(hex.Dump(u.image[Internal].rawData))
+
+	err = u.loadImage(f, External)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -174,10 +218,8 @@ func (u *Update) GetCRCValue(img ImageNumber) uint16 {
 		return u.fileHdr.crcValue()
 	} else {
 		switch img {
-		case Internal:
-			return u.internalHdr.crcValue()
-		case External:
-			return u.externalHdr.crcValue()
+		case Internal, External:
+			return u.imageHdr[img].crcValue()
 		default:
 			return 0
 		}
@@ -189,10 +231,8 @@ func (u *Update) GetCRCData(img ImageNumber) []byte {
 		return u.fileHdr.crcData()
 	} else {
 		switch img {
-		case Internal:
-			return u.internalHdr.crcData()
-		case External:
-			return u.externalHdr.crcData()
+		case Internal, External:
+			return u.imageHdr[img].crcData()
 		default:
 			return []byte{}
 		}
