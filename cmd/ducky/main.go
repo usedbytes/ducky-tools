@@ -14,11 +14,21 @@ import (
 	"github.com/usedbytes/log"
 )
 
-// v1.03
-var headerLen int = 648
+type Version struct {
+	headerLen int
+	chunkLen  int
+}
 
-// v1.01
-//var headerLen int = 572
+var versions map[string]*Version = map[string]*Version{
+	"1.01": &Version{
+		headerLen: 0x23c,
+		chunkLen:  0x54,
+	},
+	"1.03r": &Version{
+		headerLen: 0x288,
+		chunkLen:  0x10,
+	},
+}
 
 func hexByteString(a []byte) string {
 	var chars []string
@@ -33,17 +43,17 @@ type fileHeader struct {
 	rawData []byte
 }
 
-func readAndDecodeHeader(f *os.File, size int) (*fileHeader, error) {
-	_, err := f.Seek(-int64(size), 2)
+func readAndDecodeHeader(f *os.File, version *Version) (*fileHeader, error) {
+	_, err := f.Seek(-int64(version.headerLen), 2)
 	if err != nil {
 		return nil, errors.Wrap(err, "Seeking header")
 	}
 
 	hdr := &fileHeader{
-		rawData: make([]byte, size),
+		rawData: make([]byte, version.headerLen),
 	}
 	n, err := f.Read(hdr.rawData)
-	if n != headerLen || err != nil {
+	if n != len(hdr.rawData) || err != nil {
 		return nil, errors.Wrap(err, "Reading header")
 	}
 
@@ -69,6 +79,12 @@ func readAndDecodeHeader(f *os.File, size int) (*fileHeader, error) {
 }
 
 func run(ctx *cli.Context) error {
+	vstr := ctx.String("version")
+	version := versions[vstr]
+	if version.headerLen == 0 {
+		return fmt.Errorf("Unrecognised version '%s'", vstr)
+	}
+
 	if ctx.Args().Len() != 1 {
 		return fmt.Errorf("INPUT_FILE is required")
 	}
@@ -79,7 +95,7 @@ func run(ctx *cli.Context) error {
 		return errors.Wrap(err, "Opening input file")
 	}
 
-	hdr, err := readAndDecodeHeader(f, headerLen)
+	hdr, err := readAndDecodeHeader(f, version)
 	if err != nil {
 		return err
 	}
@@ -104,6 +120,13 @@ func main() {
 				Usage:    "Enable more output",
 				Required: false,
 				Value:    true,
+			},
+			&cli.StringFlag{
+				Name:     "version",
+				Aliases:  []string{"V"},
+				Usage:    "Specify the version number of the updater",
+				Required: false,
+				Value:    "1.03r",
 			},
 		},
 	}
