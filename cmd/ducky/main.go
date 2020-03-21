@@ -5,6 +5,8 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/urfave/cli/v2"
@@ -13,13 +15,27 @@ import (
 )
 
 func run(ctx *cli.Context) error {
-	u := update.NewUpdate(ctx.String("version"))
-	if u == nil {
-		return fmt.Errorf("Unrecognised version '%s'", ctx.String("version"))
-	}
-
 	if ctx.Args().Len() != 1 {
 		return fmt.Errorf("INPUT_FILE is required")
+	}
+	fname := ctx.Args().First()
+
+	ver := ctx.String("version")
+	// Attempt to automatically get the version, based on Ducky's file
+	// naming convention
+	if !ctx.IsSet("version") {
+		fname := filepath.Base(fname)
+		if filepath.Ext(fname) != ".exe" {
+			return fmt.Errorf("No version specified and it couldn't be determined")
+		}
+
+		toks := strings.SplitAfter(strings.TrimSuffix(fname, ".exe"), "_")
+		ver = toks[len(toks)-1]
+	}
+
+	u := update.NewUpdate(ver)
+	if u == nil {
+		return fmt.Errorf("Unrecognised version '%s'", ver)
 	}
 
 	f, err := os.Open(ctx.Args().First())
@@ -55,7 +71,7 @@ func main() {
 			&cli.StringFlag{
 				Name:     "version",
 				Aliases:  []string{"V"},
-				Usage:    "Specify the version number of the updater",
+				Usage:    "Specify the updater version if it can't be found automatically",
 				Required: false,
 				Value:    "1.03r",
 			},
