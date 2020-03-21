@@ -32,9 +32,10 @@ func (fwv FWVersion) String() string {
 }
 
 type Version struct {
-	version   FWVersion
-	headerLen int
-	chunkLen  int
+	version       FWVersion
+	headerLen     int
+	chunkLen      int
+	globalCrcData bool
 }
 
 var versions map[string]*Version = map[string]*Version{
@@ -43,16 +44,18 @@ var versions map[string]*Version = map[string]*Version{
 			major:    1,
 			minor100: 1,
 		},
-		headerLen: 0x23c,
-		chunkLen:  0x54,
+		headerLen:     0x23c,
+		chunkLen:      0x54,
+		globalCrcData: false,
 	},
 	"1.03r": &Version{
 		version: FWVersion{
 			major:    1,
 			minor100: 3,
 		},
-		headerLen: 0x288,
-		chunkLen:  0x10,
+		headerLen:     0x288,
+		chunkLen:      0x10,
+		globalCrcData: true,
 	},
 }
 
@@ -216,6 +219,20 @@ func (fh *fileHeader) decodeIAPVersion() error {
 	return nil
 }
 
+func (fh *fileHeader) crcValue() uint16 {
+	if len(fh.rawData) > 0x228+0x44 {
+		return binary.LittleEndian.Uint16(fh.rawData[0x228:])
+	}
+	return 0
+}
+
+func (fh *fileHeader) crcData() []byte {
+	if len(fh.rawData) > 0x228+0x44 {
+		return fh.rawData[0x22a:0x26a]
+	}
+	return []byte{}
+}
+
 func (fh fileHeader) String() string {
 	str := ""
 	str += fmt.Sprintf("Header version:   V%d\n", fh.headerVersion)
@@ -312,6 +329,20 @@ func (u *Update) loadFileHeader(f *os.File) error {
 	return nil
 }
 
+func (ih *imageHeader) crcValue() uint16 {
+	if len(ih.rawData) >= 0x12 {
+		return binary.LittleEndian.Uint16(ih.rawData[0x10:])
+	}
+	return 0
+}
+
+func (ih *imageHeader) crcData() []byte {
+	if len(ih.rawData) >= 0x52 {
+		return ih.rawData[0x12:0x52]
+	}
+	return []byte{}
+}
+
 func (u *Update) loadImageHeader(f *os.File, num ImageNumber) error {
 	_, err := f.Seek(-int64(u.version.headerLen+u.version.chunkLen*int(num+1)), 2)
 	if err != nil {
@@ -375,6 +406,36 @@ func (u *Update) Load(f *os.File) error {
 	return nil
 }
 
+func (u *Update) GetCRCValue(img ImageNumber) uint16 {
+	if u.version.globalCrcData {
+		return u.fileHdr.crcValue()
+	} else {
+		switch img {
+		case Internal:
+			return u.internalHdr.crcValue()
+		case External:
+			return u.externalHdr.crcValue()
+		default:
+			return 0
+		}
+	}
+}
+
+func (u *Update) GetCRCData(img ImageNumber) []byte {
+	if u.version.globalCrcData {
+		return u.fileHdr.crcData()
+	} else {
+		switch img {
+		case Internal:
+			return u.internalHdr.crcData()
+		case External:
+			return u.externalHdr.crcData()
+		default:
+			return []byte{}
+		}
+	}
+}
+
 func run(ctx *cli.Context) error {
 	u := NewUpdate(ctx.String("version"))
 	if u == nil {
@@ -395,6 +456,9 @@ func run(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
+
+	log.Println(u.GetCRCValue(Internal))
+	log.Println(hexByteString(u.GetCRCData(Internal)))
 
 	return nil
 }
