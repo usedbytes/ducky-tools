@@ -3,7 +3,6 @@
 package main
 
 import (
-	"encoding/hex"
 	"fmt"
 	"os"
 
@@ -34,10 +33,6 @@ func run(ctx *cli.Context) error {
 		return err
 	}
 
-	log.Println(u.GetCRCValue(update.Internal))
-	log.Println(hex.Dump(u.GetCRCData(update.Internal)))
-	log.Println(hex.Dump(u.GetFWBlob(update.Internal).RawData()))
-
 	return nil
 }
 
@@ -55,7 +50,7 @@ func main() {
 				Aliases:  []string{"v"},
 				Usage:    "Enable more output",
 				Required: false,
-				Value:    true,
+				Value:    false,
 			},
 			&cli.StringFlag{
 				Name:     "version",
