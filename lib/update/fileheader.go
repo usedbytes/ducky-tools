@@ -163,7 +163,7 @@ func (fh fileHeader) String() string {
 	str += fmt.Sprintf("Name:             %s\n", fh.name)
 	str += fmt.Sprintf("IAP version:      %s\n", fh.iapVersion)
 	str += fmt.Sprintf("Layout:           %s\n", fh.layout)
-	str += fmt.Sprintf("File Key:         %s\n", hexByteString(fh.fileKey[:]))
+	str += fmt.Sprintf("File Key:         %s", hexByteString(fh.fileKey[:]))
 	return str
 }
 

@@ -105,8 +105,6 @@ func (u *Update) loadFileHeader(f io.ReadSeeker) error {
 		return fmt.Errorf("Expected firmware version %s but got %s", u.version.version, u.fileHdr.fwVersion)
 	}
 
-	log.Println(u.fileHdr)
-
 	return nil
 }
 
@@ -180,33 +178,30 @@ func (u *Update) Load(f io.ReadSeeker) error {
 		return err
 	}
 
-	log.Println(hex.Dump(u.fileHdr.rawData))
-
 	err = u.loadImageHeader(f, Internal)
 	if err != nil {
 		return err
 	}
-
-	log.Println(hex.Dump(u.imageHdr[Internal].rawData))
 
 	err = u.loadImageHeader(f, External)
 	if err != nil {
 		return err
 	}
 
-	log.Println(hex.Dump(u.imageHdr[External].rawData))
-
 	err = u.loadImage(f, Internal)
 	if err != nil {
 		return err
 	}
 
-	log.Println(hex.Dump(u.image[Internal].rawData))
-
 	err = u.loadImage(f, External)
 	if err != nil {
 		return err
 	}
+
+	log.Println(u.fileHdr)
+	log.Verbosef("File Header:\n%s\n", hex.Dump(u.fileHdr.rawData))
+	log.Verbosef("Image Header (Internal):\n%s\n", hex.Dump(u.imageHdr[Internal].rawData))
+	log.Verbosef("Image Header (External):\n%s\n", hex.Dump(u.imageHdr[External].rawData))
 
 	return nil
 }
