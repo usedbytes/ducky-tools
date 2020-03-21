@@ -3,6 +3,8 @@
 package main
 
 import (
+	"io/ioutil"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,9 +16,9 @@ import (
 	"github.com/usedbytes/log"
 )
 
-func run(ctx *cli.Context) error {
+func loadUpdateFile(ctx *cli.Context) (*update.Update, string, error) {
 	if ctx.Args().Len() != 1 {
-		return fmt.Errorf("INPUT_FILE is required")
+		return nil, "", fmt.Errorf("INPUT_FILE is required")
 	}
 	fname := ctx.Args().First()
 
@@ -24,9 +26,9 @@ func run(ctx *cli.Context) error {
 	// Attempt to automatically get the version, based on Ducky's file
 	// naming convention
 	if !ctx.IsSet("version") {
-		fname := filepath.Base(fname)
+		fname = filepath.Base(fname)
 		if filepath.Ext(fname) != ".exe" {
-			return fmt.Errorf("No version specified and it couldn't be determined")
+			return nil, "", fmt.Errorf("No version specified and it couldn't be determined")
 		}
 
 		toks := strings.SplitAfter(strings.TrimSuffix(fname, ".exe"), "_")
@@ -35,31 +37,58 @@ func run(ctx *cli.Context) error {
 
 	u := update.NewUpdate(ver)
 	if u == nil {
-		return fmt.Errorf("Unrecognised version '%s'", ver)
+		return nil, fname, fmt.Errorf("Unrecognised version '%s'", ver)
 	}
 
 	f, err := os.Open(ctx.Args().First())
 	defer f.Close()
 	if err != nil {
-		return errors.Wrap(err, "Opening input file")
+		return nil, fname, errors.Wrap(err, "Opening input file")
 	}
 
 	err = u.Load(f)
 	if err != nil {
+		return nil, fname, err
+	}
+
+	return u, fname, nil
+}
+
+func extractAction(ctx *cli.Context) error {
+	u, fname, err := loadUpdateFile(ctx)
+	if err != nil {
 		return err
 	}
 
-	return nil
+	fwname := fname + ".enc.bin"
+	err = ioutil.WriteFile(fwname, u.GetFWBlob(update.Internal).RawData(), 0644)
+	if err != nil {
+		return err
+	}
+
+	exname := fname + ".extra.bin"
+	err = ioutil.WriteFile(exname, u.GetCRCData(update.Internal), 0644)
+	if err != nil {
+		return err
+	}
+
+	crcname := fname + ".crc.bin"
+	crc := make([]byte, 2)
+	binary.LittleEndian.PutUint16(crc, u.GetCRCValue(update.Internal))
+	err = ioutil.WriteFile(crcname, crc, 0644)
+	if err != nil {
+		return err
+	}
+
+	return err
 }
 
 func main() {
 	app := &cli.App{
 		Name:      "ducky",
 		Usage:     "A tool for working with Ducky One firmware udpates",
-		ArgsUsage: "INPUT_FILE",
 		// Just ignore errors - we'll handle them ourselves in main()
 		ExitErrHandler: func(c *cli.Context, e error) {},
-		Action:         run,
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:     "verbose",
@@ -68,12 +97,22 @@ func main() {
 				Required: false,
 				Value:    false,
 			},
-			&cli.StringFlag{
-				Name:     "version",
-				Aliases:  []string{"V"},
-				Usage:    "Specify the updater version if it can't be found automatically",
-				Required: false,
-				Value:    "1.03r",
+		},
+	}
+
+	app.Commands = []*cli.Command{
+		{
+			Name: "extract",
+			ArgsUsage: "INPUT_FILE",
+			Action: extractAction,
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:     "version",
+					Aliases:  []string{"V"},
+					Usage:    "Specify the updater version if it can't be found automatically",
+					Required: false,
+					Value:    "1.03r",
+				},
 			},
 		},
 	}
