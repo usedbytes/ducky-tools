@@ -76,7 +76,7 @@ const (
 
 func NewUpdate(version string) *Update {
 	v := versions[version]
-	if v.headerLen == 0 {
+	if v == nil {
 		return nil
 	}
 	return &Update{
