@@ -43,18 +43,46 @@ type fileHeader struct {
 	rawData []byte
 }
 
-func readAndDecodeHeader(f *os.File, version *Version) (*fileHeader, error) {
-	_, err := f.Seek(-int64(version.headerLen), 2)
+type imageHeader struct {
+	idx uint32
+	size uint32
+	rawData []byte
+}
+
+type Update struct {
+	version *Version
+	fileHdr *fileHeader
+	internalHdr, externalHdr *imageHeader
+}
+
+type ImageNumber int
+const (
+	Internal ImageNumber = iota
+	External
+)
+
+func NewUpdate(version string) *Update {
+	v := versions[version]
+	if v.headerLen == 0 {
+		return nil
+	}
+	return &Update{
+		version: v,
+	}
+}
+
+func (u *Update) loadFileHeader(f *os.File) error {
+	_, err := f.Seek(-int64(u.version.headerLen), 2)
 	if err != nil {
-		return nil, errors.Wrap(err, "Seeking header")
+		return errors.Wrap(err, "Seeking file header")
 	}
 
 	hdr := &fileHeader{
-		rawData: make([]byte, version.headerLen),
+		rawData: make([]byte, u.version.headerLen),
 	}
 	n, err := f.Read(hdr.rawData)
 	if n != len(hdr.rawData) || err != nil {
-		return nil, errors.Wrap(err, "Reading header")
+		return errors.Wrap(err, "Reading file header")
 	}
 
 	// This isn't the method the proprietary code uses, but this is
@@ -74,34 +102,72 @@ func readAndDecodeHeader(f *os.File, version *Version) (*fileHeader, error) {
 	}
 
 	// TODO: Extract the fields
+	u.fileHdr = hdr
 
-	return hdr, nil
+	return nil
 }
 
-func readRawChunk(f *os.File, version *Version, num int, fileKey [4]byte) ([]byte, error) {
-	_, err := f.Seek(-int64(version.headerLen+version.chunkLen*num), 2)
+func (u *Update) loadImageHeader(f *os.File, num ImageNumber) error {
+	_, err := f.Seek(-int64(u.version.headerLen+u.version.chunkLen*int(num+1)), 2)
 	if err != nil {
-		return nil, errors.Wrap(err, "Seeking chunk")
+		return errors.Wrap(err, "Seeking image header")
 	}
 
-	rawData := make([]byte, version.chunkLen)
-	n, err := f.Read(rawData)
-	if n != len(rawData) || err != nil {
-		return nil, errors.Wrap(err, "Reading chunk")
+	hdr := &imageHeader{
+		rawData: make([]byte, u.version.chunkLen),
+	}
+	n, err := f.Read(hdr.rawData)
+	if n != len(hdr.rawData) || err != nil {
+		return errors.Wrap(err, "Reading image header")
 	}
 
-	for i, _ := range rawData {
-		rawData[i] = rawData[i] ^ fileKey[i%4] ^ byte(i)
+	for i, _ := range hdr.rawData {
+		hdr.rawData[i] = hdr.rawData[i] ^ u.fileHdr.fileKey[i%4] ^ byte(i)
 	}
 
-	return rawData, nil
+	switch num {
+	case Internal:
+		u.internalHdr = hdr
+	case External:
+		u.externalHdr = hdr
+	default:
+		return fmt.Errorf("Unrecognised image number")
+	}
+
+	return nil
+}
+
+
+func (u *Update) Load(f *os.File) error {
+
+	err := u.loadFileHeader(f)
+	if err != nil {
+		return err
+	}
+
+	log.Println(hex.Dump(u.fileHdr.rawData))
+
+	err = u.loadImageHeader(f, Internal)
+	if err != nil {
+		return err
+	}
+
+	log.Println(hex.Dump(u.internalHdr.rawData))
+
+	err = u.loadImageHeader(f, External)
+	if err != nil {
+		return err
+	}
+
+	log.Println(hex.Dump(u.externalHdr.rawData))
+
+	return nil
 }
 
 func run(ctx *cli.Context) error {
-	vstr := ctx.String("version")
-	version := versions[vstr]
-	if version.headerLen == 0 {
-		return fmt.Errorf("Unrecognised version '%s'", vstr)
+	u := NewUpdate(ctx.String("version"))
+	if u == nil {
+		return fmt.Errorf("Unrecognised version '%s'", ctx.String("version"))
 	}
 
 	if ctx.Args().Len() != 1 {
@@ -114,26 +180,10 @@ func run(ctx *cli.Context) error {
 		return errors.Wrap(err, "Opening input file")
 	}
 
-	hdr, err := readAndDecodeHeader(f, version)
+	err = u.Load(f)
 	if err != nil {
 		return err
 	}
-
-	log.Println(hex.Dump(hdr.rawData))
-
-	chunk1, err := readRawChunk(f, version, 1, hdr.fileKey)
-	if err != nil {
-		return err
-	}
-
-	log.Println(hex.Dump(chunk1))
-
-	chunk2, err := readRawChunk(f, version, 2, hdr.fileKey)
-	if err != nil {
-		return err
-	}
-
-	log.Println(hex.Dump(chunk2))
 
 	return nil
 }
