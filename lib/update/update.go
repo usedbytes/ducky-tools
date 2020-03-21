@@ -236,3 +236,12 @@ func (u *Update) GetCRCData(img ImageNumber) []byte {
 		}
 	}
 }
+
+func (u *Update) GetFWBlob(img ImageNumber) *FWBlob {
+	switch img {
+	case Internal, External:
+		return u.image[img]
+	default:
+		return &FWBlob{}
+	}
+}

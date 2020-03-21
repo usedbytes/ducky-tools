@@ -17,3 +17,7 @@ func newFWBlob(rawData []byte, key [4]byte) (*FWBlob, error) {
 
 	return blob, nil
 }
+
+func (fwb *FWBlob) RawData() []byte {
+	return fwb.rawData
+}
