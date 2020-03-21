@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"math"
@@ -120,7 +121,7 @@ type fileHeader struct {
 }
 
 type imageHeader struct {
-	idx     uint32
+	idx     byte
 	size    uint32
 	rawData []byte
 }
@@ -328,6 +329,13 @@ func (u *Update) loadImageHeader(f *os.File, num ImageNumber) error {
 	for i, _ := range hdr.rawData {
 		hdr.rawData[i] = hdr.rawData[i] ^ u.fileHdr.fileKey[i%4] ^ byte(i)
 	}
+
+	hdr.idx = hdr.rawData[3]
+	if ImageNumber(hdr.idx) != num {
+		return fmt.Errorf("Decoded image number (%d) doesn't match expected (%d)", hdr.idx, num)
+	}
+
+	hdr.size = binary.LittleEndian.Uint32(hdr.rawData[4:8])
 
 	switch num {
 	case Internal:
