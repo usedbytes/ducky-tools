@@ -14,6 +14,8 @@ import (
 	"github.com/usedbytes/log"
 )
 
+var closedErr error = errors.New("context closed")
+
 type Context struct {
 	bg    context.Context
 	ctx   *gousb.Context
@@ -25,6 +27,8 @@ type Context struct {
 
 	crct     *crc16.Table
 	crcExtra []byte
+
+	closed bool
 }
 
 func NewContext(vid, pid uint16) (*Context, error) {
@@ -108,6 +112,10 @@ func NewContext(vid, pid uint16) (*Context, error) {
 }
 
 func (c *Context) Close() {
+	if c.closed {
+		return
+	}
+
 	if c.intf != nil {
 		c.intf.Close()
 		c.intf = nil
@@ -124,6 +132,12 @@ func (c *Context) Close() {
 		c.ctx.Close()
 		c.ctx = nil
 	}
+
+	c.closed = true
+}
+
+func (c *Context) SetExtraCRCData(data []byte) {
+	c.crcExtra = data
 }
 
 func (c *Context) sendPacket(packet []byte) error {
@@ -153,7 +167,7 @@ func (c *Context) readPacket(packet []byte) (int, error) {
 		return 0, errors.New("Read transfers must be 64 bytes")
 	}
 
-	to, cancel := context.WithTimeout(c.bg, 1 * time.Second)
+	to, cancel := context.WithTimeout(c.bg, 1*time.Second)
 	defer cancel()
 
 	n, err := c.inEp.ReadContext(to, packet)
@@ -165,6 +179,10 @@ func (c *Context) readPacket(packet []byte) (int, error) {
 }
 
 func (c *Context) ReadData(start uint32, data []byte) (int, error) {
+	if c.closed {
+		return 0, closedErr
+	}
+
 	packet := []byte{
 		0x01, 0x02,
 		0x00, 0x00, // CRC
@@ -195,4 +213,30 @@ func (c *Context) ReadData(start uint32, data []byte) (int, error) {
 	}
 
 	return n, err
+}
+
+// 'toIAP' is ignored when in AP mode. It always resets to IAP
+func (c *Context) Reset(toIAP bool) error {
+	if c.closed {
+		return closedErr
+	}
+
+	packet := []byte{
+		0x04, 0x00,
+		0x00, 0x00, // CRC
+	}
+
+	if toIAP {
+		packet[1] = 1
+	}
+
+	err := c.sendPacket(packet)
+	if err != nil {
+		return err
+	}
+
+	// Device will have gone away, so kill the context
+	c.Close()
+
+	return err
 }
