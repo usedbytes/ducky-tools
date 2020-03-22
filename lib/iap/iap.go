@@ -3,6 +3,7 @@
 package iap
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/hex"
@@ -140,7 +141,7 @@ func (c *Context) SetExtraCRCData(data []byte) {
 	c.crcExtra = data
 }
 
-func (c *Context) sendPacket(packet []byte) error {
+func (c *Context) sendPacket(packet []byte) ([]byte, error) {
 	if len(packet) < 0x40 {
 		packet = append(packet, make([]byte, 0x40-len(packet))...)
 	}
@@ -154,12 +155,12 @@ func (c *Context) sendPacket(packet []byte) error {
 
 	n, err := c.outEp.Write(packet)
 	if err != nil {
-		return err
+		return nil, err
 	} else if n != len(packet) {
-		return errors.New("Short write")
+		return nil, errors.New("Short write")
 	}
 
-	return nil
+	return packet, nil
 }
 
 func (c *Context) readPacket(packet []byte) (int, error) {
@@ -197,7 +198,7 @@ func (c *Context) ReadData(start uint32, data []byte) (int, error) {
 	binary.LittleEndian.PutUint32(packet[4:], start)
 	binary.LittleEndian.PutUint32(packet[8:], start+uint32(len(data)-1))
 
-	err := c.sendPacket(packet)
+	_, err := c.sendPacket(packet)
 	if err != nil {
 		return 0, err
 	}
@@ -230,7 +231,7 @@ func (c *Context) Reset(toIAP bool) error {
 		packet[1] = 1
 	}
 
-	err := c.sendPacket(packet)
+	_, err := c.sendPacket(packet)
 	if err != nil {
 		return err
 	}
@@ -239,4 +240,41 @@ func (c *Context) Reset(toIAP bool) error {
 	c.Close()
 
 	return err
+}
+
+func (c *Context) Ping(val byte) (bool, error) {
+	if c.closed {
+		return false, closedErr
+	}
+
+	packet := []byte{
+		0xff, val,
+		0x00, 0x00, // CRC
+	}
+
+	packet, err := c.sendPacket(packet)
+	if err != nil {
+		return false, err
+	}
+
+	rxbuf := make([]byte, 64)
+	n, err := c.readPacket(rxbuf)
+	if err != nil {
+		return false, err
+	} else if n != len(rxbuf) {
+		return false, errors.New("short read")
+	}
+
+	magic := binary.LittleEndian.Uint16(rxbuf)
+	if magic != 0xaaff {
+		log.Verboseln("unexpected magic")
+		return false, nil
+	}
+
+	if bytes.Compare(packet[:4], rxbuf[4:8]) != 0 {
+		log.Verboseln("val not matched", packet[:4], rxbuf[4:8])
+		return false, nil
+	}
+
+	return true, nil
 }
