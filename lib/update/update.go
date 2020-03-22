@@ -240,3 +240,11 @@ func (u *Update) GetFWBlob(img ImageNumber) *FWBlob {
 		return &FWBlob{}
 	}
 }
+
+func (u *Update) GetAPVIDPID() (uint16, uint16) {
+	return u.fileHdr.apVID, u.fileHdr.apPID
+}
+
+func (u *Update) GetIAPVIDPID() (uint16, uint16) {
+	return u.fileHdr.iapVID, u.fileHdr.iapPID
+}

@@ -196,7 +196,7 @@ func newFileHeader(rawData []byte) (*fileHeader, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "Parsing AP PID")
 	}
-	hdr.apVID = uint16(tmp)
+	hdr.apPID = uint16(tmp)
 
 	tmp, err = strconv.ParseUint(string(hdr.rawData[20:24]), 16, 16)
 	if err != nil {
@@ -208,7 +208,7 @@ func newFileHeader(rawData []byte) (*fileHeader, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "Parsing IAP PID")
 	}
-	hdr.iapVID = uint16(tmp)
+	hdr.iapPID = uint16(tmp)
 
 	hvsLen, err := hdr.decodeHeaderVersion()
 	if err != nil {

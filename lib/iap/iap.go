@@ -39,6 +39,8 @@ func NewContext(vid, pid uint16) (*Context, error) {
 		crct: crc16.MakeTable(crc16.CRC16_XMODEM),
 	}
 
+	log.Verbosef("NewContext %04x:%04x\n", vid, pid)
+
 	var err error
 	ctx.dev, err = ctx.ctx.OpenDeviceWithVIDPID(gousb.ID(vid), gousb.ID(pid))
 	if err != nil {
