@@ -131,6 +131,10 @@ func iapTestAction(ctx *cli.Context) error {
 		return err
 	}
 	defer iapCtx.Close()
+	defer func() {
+		log.Println("Reset back to AP mode...")
+		iapCtx.Reset(false)
+	}()
 
 	iapCtx.SetExtraCRCData(u.GetCRCData(update.Internal))
 
@@ -150,12 +154,186 @@ func iapTestAction(ctx *cli.Context) error {
 	}
 	log.Println("timed out")
 
-	log.Println("Reset back to AP mode...")
-	iapCtx.Reset(false)
+	info, err := iapCtx.GetInformation()
+	if err != nil {
+		return err
+	}
 
-	log.Println("Success!")
+	log.Println(">>> Info:")
+	log.Println(info.String())
 
 	return nil
+}
+
+func enterIAP(u *update.Update) (*iap.Context, error) {
+
+	vid, pid := u.GetIAPVIDPID()
+	iapCtx, err := iap.NewContext(vid, pid)
+	if err != nil {
+		v, p := u.GetAPVIDPID()
+		iapCtx, err = iap.NewContext(v, p)
+		if err != nil {
+			return nil, err
+		}
+
+		iapCtx.Reset(true)
+
+		for i := 0; i < 10; i++ {
+			time.Sleep(100 * time.Millisecond)
+			iapCtx, err = iap.NewContext(vid, pid)
+			if err == nil {
+				return iapCtx, nil
+			}
+		}
+	}
+
+	return iapCtx, err
+}
+
+func foo(ctx *cli.Context) error {
+	u, _, err := loadUpdateFile(ctx)
+	if err != nil {
+		return err
+	}
+
+	iapCtx, err := enterIAP(u)
+	if err != nil {
+		return err
+	}
+	defer iapCtx.Reset(false)
+
+	iapCtx.SetExtraCRCData(u.GetCRCData(update.Internal))
+
+	info, err := iapCtx.GetInformation()
+	if err != nil {
+		return err
+	}
+	log.Println(info)
+
+	log.Println(">>> Erase version...")
+	es, el := info.VersionErase()
+
+	err = iapCtx.ErasePage(es, el)
+	if err != nil {
+		return err
+	}
+
+	err = iapCtx.CheckStatus(-1)
+	if err != nil {
+		return err
+	}
+
+	fw := u.GetFWBlob(update.Internal).RawData()
+	addr := info.StartAddr()
+
+	log.Println(">>> Erase program...")
+	err = iapCtx.ErasePage(addr, len(fw))
+	if err != nil {
+		return err
+	}
+
+	err = iapCtx.CheckStatus(1)
+	if err != nil {
+		return err
+	}
+
+	log.Println(">>> Write program...")
+	i := 0
+	for start := 0; start < len(fw); start += 0x34 {
+		end := start + 0x34
+		if end > len(fw) {
+			end = len(fw)
+		}
+
+		err = iapCtx.WriteData(addr, fw[start:end])
+		if err != nil {
+			return err
+		}
+
+		i++
+		if i >= 16 {
+			err = iapCtx.CheckStatus(i)
+			if err != nil {
+				return err
+			}
+			i = 0
+		}
+		addr += 0x34
+	}
+
+	err = iapCtx.CheckStatus(i)
+	if err != nil {
+		return err
+	}
+
+	log.Println(">>> Verify program...")
+	addr = info.StartAddr()
+	i = 0
+	for start := 0; start < len(fw); start += 0x34 {
+		end := start + 0x34
+		if end > len(fw) {
+			end = len(fw)
+		}
+
+		err = iapCtx.VerifyData(addr, fw[start:end])
+		if err != nil {
+			return err
+		}
+
+		i++
+		if i >= 16 {
+			err = iapCtx.CheckStatus(i)
+			if err != nil {
+				return err
+			}
+			i = 0
+		}
+		addr += 0x34
+	}
+
+	err = iapCtx.CheckStatus(i)
+	if err != nil {
+		return err
+	}
+
+	log.Println(">>> Check CRC...")
+	crc := u.GetCRCValue(update.Internal)
+	err = iapCtx.CRCCheck(info.StartAddr(), 1, crc)
+	if err != nil {
+		return err
+	}
+
+	_, err = iapCtx.GetStatus()
+	if err != nil {
+		log.Println("GetStatus:", err)
+	}
+
+	log.Println(">>> Write version...")
+	err = iapCtx.WriteData(0x3c00, []byte{0x07, 0x00, 0x00, 0x00, 0x56, 0x32, 0x2e, 0x31, 0x2e, 0x30, 0x33, 0x00})
+	if err != nil {
+		return err
+	}
+
+	err = iapCtx.CheckStatus(1)
+	if err != nil {
+		return err
+	}
+
+	log.Println(">>> Verify version...")
+	err = iapCtx.VerifyData(0x3c00, []byte{0x07, 0x00, 0x00, 0x00, 0x56, 0x32, 0x2e, 0x31, 0x2e, 0x30, 0x33, 0x00})
+	if err != nil {
+		return err
+	}
+
+	err = iapCtx.CheckStatus(1)
+	if err != nil {
+		return err
+	}
+
+	log.Println(">>> Success!")
+
+	return nil
+
 }
 
 func main() {
@@ -206,6 +384,20 @@ func main() {
 							Value:    "1.03r",
 						},
 					},
+				},
+			},
+		},
+		{
+			Name:      "foo",
+			ArgsUsage: "INPUT_FILE",
+			Action:    foo,
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:     "version",
+					Aliases:  []string{"V"},
+					Usage:    "Specify the updater version if it can't be found automatically",
+					Required: false,
+					Value:    "1.03r",
 				},
 			},
 		},

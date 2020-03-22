@@ -67,6 +67,10 @@ type IAPVersion struct {
 	a, b, c int
 }
 
+func NewIAPVersion(a, b, c int) IAPVersion {
+	return IAPVersion{a: a, b: b, c: c}
+}
+
 func (iapv IAPVersion) Matches(other IAPVersion) bool {
 	return iapv.a == other.a && iapv.b == other.b && iapv.c == other.c
 }

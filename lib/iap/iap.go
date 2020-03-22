@@ -7,11 +7,13 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/hex"
+	"fmt"
 	"time"
 
 	"github.com/google/gousb"
 	"github.com/pkg/errors"
 	"github.com/sigurn/crc16"
+	"github.com/usedbytes/ducky-tools/lib/update"
 	"github.com/usedbytes/log"
 )
 
@@ -218,6 +220,89 @@ func (c *Context) ReadData(start uint32, data []byte) (int, error) {
 	return n, err
 }
 
+func (c *Context) WriteData(start uint32, data []byte) error {
+	if c.closed {
+		return closedErr
+	}
+
+	packet := []byte{
+		0x01, 0x01,
+		0x00, 0x00, // CRC
+		0x00, 0x00, 0x00, 0x00, // Start
+		0x00, 0x00, 0x00, 0x00, // End
+	}
+
+	if len(data) > 0x40-len(packet) {
+		return errors.New("Too long. Split not implemented")
+	}
+
+	binary.LittleEndian.PutUint32(packet[4:], start)
+	binary.LittleEndian.PutUint32(packet[8:], start+uint32(len(data)-1))
+
+	packet = append(packet, data...)
+	_, err := c.sendPacket(packet)
+	if err != nil {
+		return err
+	}
+
+	return err
+}
+
+// TODO: I have no idea what this does (if anything) and how to detect
+// if it fails.
+func (c *Context) VerifyData(start uint32, data []byte) error {
+	if c.closed {
+		return closedErr
+	}
+
+	packet := []byte{
+		0x01, 0x00,
+		0x00, 0x00, // CRC
+		0x00, 0x00, 0x00, 0x00, // Start
+		0x00, 0x00, 0x00, 0x00, // End
+	}
+
+	if len(data) > 0x40-len(packet) {
+		return errors.New("Too long. Split not implemented")
+	}
+
+	binary.LittleEndian.PutUint32(packet[4:], start)
+	binary.LittleEndian.PutUint32(packet[8:], start+uint32(len(data)-1))
+
+	packet = append(packet, data...)
+	_, err := c.sendPacket(packet)
+	if err != nil {
+		return err
+	}
+
+	return err
+}
+
+func (c *Context) CRCCheck(start, length uint32, crc uint16) error {
+	if c.closed {
+		return closedErr
+	}
+
+	packet := []byte{
+		0x02, 0x00,
+		0x00, 0x00, // Packet CRC
+		0x00, 0x00, 0x00, 0x00, // Start
+		0x00, 0x00, 0x00, 0x00, // End
+		0x00, 0x00, // Check CRC
+	}
+
+	binary.LittleEndian.PutUint32(packet[4:], start)
+	binary.LittleEndian.PutUint32(packet[8:], start+uint32(length-1))
+	binary.LittleEndian.PutUint16(packet[12:], crc)
+
+	_, err := c.sendPacket(packet)
+	if err != nil {
+		return err
+	}
+
+	return err
+}
+
 // 'toIAP' is ignored when in AP mode. It always resets to IAP
 func (c *Context) Reset(toIAP bool) error {
 	if c.closed {
@@ -279,4 +364,180 @@ func (c *Context) Ping(val byte) (bool, error) {
 	}
 
 	return true, nil
+}
+
+type IAPInfo struct {
+	rawData []byte
+}
+
+func (i IAPInfo) ChipName() string {
+	return fmt.Sprintf("HT32F%02x%02x", i.rawData[1], i.rawData[0])
+}
+
+func (i IAPInfo) IAPVersion() string {
+	// Version is stored in bytes 2/3 as BCD
+	//  2  3
+	// cb ai
+	// Version: a.b.c
+	// i == 1 means IAP, 0 means ISP
+	bcd := binary.LittleEndian.Uint16(i.rawData[2:3])
+
+	t := "ISP"
+	if (bcd >> 12) > 0 {
+		t = "IAP"
+	}
+	ver := update.NewIAPVersion(int(bcd>>12)&0xf, int(bcd>>8)&0xf, int(bcd)&0xf)
+
+	return fmt.Sprintf("%s %s", t, ver)
+}
+
+func (i IAPInfo) FlashSize() uint32 {
+	// TODO
+	return 0xc000
+}
+
+func (i IAPInfo) StartAddr() uint32 {
+	// TODO
+	return 0x4000
+}
+
+func (i IAPInfo) VersionErase() (uint32, int) {
+	// TODO
+	return 0x3c00, 11
+}
+
+func (i IAPInfo) FWVersion() {
+	// TODO
+}
+
+func (i IAPInfo) String() string {
+	s := fmt.Sprintf("Chip:          %s\n", i.ChipName())
+	s += fmt.Sprintf("Flash Size:    0x%04x (%d)\n", i.FlashSize(), i.FlashSize())
+	s += fmt.Sprintf("Start Addr:    0x%04x\n", i.StartAddr())
+	es, el := i.VersionErase()
+	s += fmt.Sprintf("Version Erase: 0x%04x-0x%04x\n", es, es+uint32(el-1))
+	return s
+}
+
+func (c *Context) GetInformation() (*IAPInfo, error) {
+	if c.closed {
+		return nil, closedErr
+	}
+
+	packet := []byte{
+		0x03, 0x00,
+		0x00, 0x00, // CRC
+	}
+
+	_, err := c.sendPacket(packet)
+	if err != nil {
+		return nil, err
+	}
+
+	rxbuf := make([]byte, 64)
+	n, err := c.readPacket(rxbuf)
+	if err != nil {
+		return nil, err
+	} else if n != len(rxbuf) {
+		return nil, errors.New("short read")
+	}
+
+	info := &IAPInfo{
+		rawData: rxbuf,
+	}
+
+	return info, nil
+}
+
+type Status int
+
+const (
+	StatusOK Status = iota
+	StatusFail
+)
+
+func (s Status) String() string {
+	switch s {
+	case StatusOK:
+		return "OK"
+	case StatusFail:
+		return "Fail"
+	default:
+		return "???"
+	}
+}
+
+func (c *Context) GetStatus() ([]Status, error) {
+	if c.closed {
+		return nil, closedErr
+	}
+
+	data := make([]byte, 0x40)
+	n, err := c.dev.Control(0xa1, 0x1, 0x100, 1, data)
+	if err != nil {
+		return nil, err
+	} else if n != len(data) {
+		return nil, errors.New("short read")
+	}
+
+	log.Verbose("Status\n", hex.Dump(data))
+
+	var ret []Status
+	for _, v := range data {
+		switch v {
+		case 'O':
+			ret = append(ret, StatusOK)
+		case 'F':
+			ret = append(ret, StatusFail)
+		case 0:
+			return ret, nil
+		default:
+			return nil, errors.New("Unrecognised status code")
+		}
+	}
+
+	return nil, nil
+}
+
+func (c *Context) CheckStatus(expected int) error {
+	codes, err := c.GetStatus()
+	if err != nil {
+		return err
+	}
+
+	if expected >= 0 && len(codes) != expected {
+		return errors.New("unexpected number of status codes")
+	}
+
+	for _, c := range codes {
+		if c != StatusOK {
+			return errors.New("encountered status Fail")
+		}
+	}
+
+	return nil
+}
+
+func (c *Context) ErasePage(start uint32, length int) error {
+	if c.closed {
+		return closedErr
+	}
+
+	packet := []byte{
+		0x00, 0x08,
+		0x00, 0x00, // CRC
+		0x00, 0x00, 0x00, 0x00, // Start
+		0x00, 0x00, 0x00, 0x00, // End
+	}
+
+	binary.LittleEndian.PutUint32(packet[4:], start)
+	binary.LittleEndian.PutUint32(packet[8:], start+uint32(length-1))
+
+	_, err := c.sendPacket(packet)
+	if err != nil {
+		return err
+	}
+
+	return nil
+
 }
