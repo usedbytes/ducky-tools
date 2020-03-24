@@ -367,6 +367,17 @@ func (c *Context) Ping(val byte) (bool, error) {
 }
 
 type IAPInfo struct {
+	// I think the layout is like so:
+	// Offset: hex bytes
+	//   0000:  16 54 - Chip ID, HT32F{16}{54}
+	//   0002:  00 11 - Four 4-bit fields, C.B.A.I
+	//                  C, B, A: IAP/ISP version
+	//                  D: 0 == ISP, 1 == IAP
+	//   0004:  00 40 - Programming start address, uint16
+	//   0006:  00 04 - "Option Size" (flash page size), uint16
+	//   0008:  30 00 - OB_PP bit count. Number of unprotected? pages, uint16
+	//   000a:  30 00 - Number of pages.
+	//   000c:  00 3c - Address of FW version string, uint16
 	rawData []byte
 }
 
@@ -391,31 +402,34 @@ func (i IAPInfo) IAPVersion() string {
 	return fmt.Sprintf("%s %s", t, ver)
 }
 
+func (i IAPInfo) OptionSize() uint16 {
+	return binary.LittleEndian.Uint16(i.rawData[6:8])
+}
+
+func (i IAPInfo) OB_PPBits() uint16 {
+	return binary.LittleEndian.Uint16(i.rawData[8:10])
+}
+
 func (i IAPInfo) FlashSize() uint32 {
 	// TODO
-	return 0xc000
+	return uint32(binary.LittleEndian.Uint16(i.rawData[10:12])) * uint32(i.OptionSize())
 }
 
 func (i IAPInfo) StartAddr() uint32 {
-	// TODO
-	return 0x4000
+	return uint32(binary.LittleEndian.Uint16(i.rawData[4:6]))
 }
 
-func (i IAPInfo) VersionErase() (uint32, int) {
-	// TODO
-	return 0x3c00, 11
-}
-
-func (i IAPInfo) FWVersion() {
-	// TODO
+func (i IAPInfo) VersionAddr() uint32 {
+	return uint32(binary.LittleEndian.Uint16(i.rawData[12:14]))
 }
 
 func (i IAPInfo) String() string {
-	s := fmt.Sprintf("Chip:          %s\n", i.ChipName())
-	s += fmt.Sprintf("Flash Size:    0x%04x (%d)\n", i.FlashSize(), i.FlashSize())
-	s += fmt.Sprintf("Start Addr:    0x%04x\n", i.StartAddr())
-	es, el := i.VersionErase()
-	s += fmt.Sprintf("Version Erase: 0x%04x-0x%04x\n", es, es+uint32(el-1))
+	s := fmt.Sprintf("Chip:         %s\n", i.ChipName())
+	s += fmt.Sprintf("Option Size:  0x%04x (%d)\n", i.OptionSize(), i.OptionSize())
+	s += fmt.Sprintf("Flash Size:   0x%08x (%d)\n", i.FlashSize(), i.FlashSize())
+	s += fmt.Sprintf("OB_PP Bits:   0x%04x (%d)\n", i.OB_PPBits(), i.OB_PPBits())
+	s += fmt.Sprintf("Start Addr:   0x%08x\n", i.StartAddr())
+	s += fmt.Sprintf("Version Addr: 0x%08x\n", i.VersionAddr())
 	return s
 }
 

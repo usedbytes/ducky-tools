@@ -211,7 +211,7 @@ func foo(ctx *cli.Context) error {
 	log.Println(info)
 
 	log.Println(">>> Erase version...")
-	es, el := info.VersionErase()
+	es, el := uint32(0x3c00), 11
 
 	err = iapCtx.ErasePage(es, el)
 	if err != nil {
