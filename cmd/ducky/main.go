@@ -168,7 +168,6 @@ func iapTestAction(ctx *cli.Context) error {
 }
 
 func enterIAP(u *update.Update) (*iap.Context, error) {
-
 	vid, pid := u.GetIAPVIDPID()
 	iapCtx, err := iap.NewContext(vid, pid)
 	if err != nil {
@@ -176,6 +175,17 @@ func enterIAP(u *update.Update) (*iap.Context, error) {
 		iapCtx, err = iap.NewContext(v, p)
 		if err != nil {
 			return nil, err
+		}
+		// This is redundant if we reach the .Reset(), but Close-ing
+		// twice is fine
+		defer iapCtx.Close()
+
+		fwv, err := iapCtx.APGetVersion()
+		if err != nil {
+			return nil, err
+		}
+		if !u.Compatible(fwv) {
+			return nil, fmt.Errorf("versions incompatible. Update: %s, Device: %s", u.GetVersion(), fwv)
 		}
 
 		iapCtx.Reset(true)
@@ -211,6 +221,16 @@ func foo(ctx *cli.Context) error {
 		return err
 	}
 	log.Println(info)
+
+	log.Println("Device Info:")
+	fwv, err := iapCtx.GetVersion(info)
+	if err != nil {
+		return err
+	}
+	log.Println("Device Version:", fwv)
+	if !u.Compatible(fwv) {
+		return fmt.Errorf("versions incompatible. Update: %s, Device: %s", u.GetVersion(), fwv)
+	}
 
 	log.Println(">>> Erase version...")
 	err = iapCtx.EraseVersion(info)
