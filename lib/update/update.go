@@ -24,11 +24,18 @@ const (
 )
 
 func (hwv HWVersion) String() string {
+	if hwv == HWVersionUnknown {
+		return "V?"
+	}
 	return fmt.Sprintf("V%d", hwv)
 }
 
 func (hwv HWVersion) Matches(other HWVersion) bool {
 	return hwv == other
+}
+
+func (hwv HWVersion) Compatible(other HWVersion) bool {
+	return (hwv == HWVersionUnknown) || (other == HWVersionUnknown) || hwv == other
 }
 
 var hwvRE *regexp.Regexp = regexp.MustCompile("V([12])\\.")
@@ -62,7 +69,7 @@ func ParseFWVersion(str string) (FWVersion, error) {
 	var val float64
 	n, err := fmt.Sscanf(str[3:], "%f", &val)
 	if n != 1 || err != nil {
-		return FWVersion{}, fmt.Errorf("Can't parse: '%s'", str)
+		return FWVersion{}, fmt.Errorf("Can't parse: '%s'", str[3:])
 	}
 
 	major, minor := math.Modf(val)
@@ -78,22 +85,26 @@ func (fwv FWVersion) Matches(other FWVersion) bool {
 	return fwv.hwv.Matches(other.hwv) && fwv.major == other.major && fwv.minor100 == other.minor100
 }
 
+// Compatibility for the major/minor isn't clear, so let's be conservative
+func (fwv FWVersion) Compatible(other FWVersion) bool {
+	return fwv.hwv.Compatible(other.hwv) && fwv.major == other.major
+}
+
 func (fwv FWVersion) String() string {
 	return fmt.Sprintf("%s.%.2f", fwv.hwv, float64(fwv.major)+float64(fwv.minor100)/100)
 }
 
-type Version struct {
+type UpdaterVersion struct {
 	version       FWVersion
 	headerLen     int
 	chunkLen      int
 	globalCrcData bool
 }
 
-var versions map[string]*Version = map[string]*Version{
-	"1.01": &Version{
+var versions map[string]*UpdaterVersion = map[string]*UpdaterVersion{
+	"1.01": &UpdaterVersion{
 		version: FWVersion{
-			// FIXME: How to handle different HW vers?
-			hwv:      HWVersionV2,
+			hwv:      HWVersionUnknown,
 			major:    1,
 			minor100: 1,
 		},
@@ -101,9 +112,9 @@ var versions map[string]*Version = map[string]*Version{
 		chunkLen:      0x54,
 		globalCrcData: false,
 	},
-	"1.03r": &Version{
+	"1.03r": &UpdaterVersion{
 		version: FWVersion{
-			hwv:      HWVersionV2,
+			hwv:      HWVersionUnknown,
 			major:    1,
 			minor100: 3,
 		},
@@ -122,7 +133,7 @@ func hexByteString(a []byte) string {
 }
 
 type Update struct {
-	version  *Version
+	version  *UpdaterVersion
 	fileHdr  *fileHeader
 	imageHdr [2]*imageHeader
 	image    [2]*FWBlob
@@ -162,8 +173,8 @@ func (u *Update) loadFileHeader(f io.ReadSeeker) error {
 		return errors.Wrap(err, "Parsing file header")
 	}
 
-	if !u.fileHdr.fwVersion.Matches(u.version.version) {
-		return fmt.Errorf("Expected firmware version %s but got %s", u.version.version, u.fileHdr.fwVersion)
+	if !u.fileHdr.fwVersion.Compatible(u.version.version) {
+		return fmt.Errorf("Incompatible firmware version %s vs %s", u.version.version, u.fileHdr.fwVersion)
 	}
 
 	return nil
@@ -308,4 +319,15 @@ func (u *Update) GetAPVIDPID() (uint16, uint16) {
 
 func (u *Update) GetIAPVIDPID() (uint16, uint16) {
 	return u.fileHdr.iapVID, u.fileHdr.iapPID
+}
+
+func (u *Update) Compatible(other FWVersion) bool {
+	return u.fileHdr.fwVersion.Compatible(other)
+}
+
+func (u *Update) GetVersion() FWVersion {
+	if u.fileHdr != nil {
+		return u.fileHdr.fwVersion
+	}
+	return u.version.version
 }
