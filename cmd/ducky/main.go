@@ -44,10 +44,10 @@ func loadUpdateFile(ctx *cli.Context) (*update.Update, string, error) {
 	}
 
 	f, err := os.Open(ctx.Args().First())
-	defer f.Close()
 	if err != nil {
 		return nil, fname, errors.Wrap(err, "Opening input file")
 	}
+	defer f.Close()
 
 	err = u.Load(f)
 	if err != nil {
