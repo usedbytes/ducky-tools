@@ -104,6 +104,9 @@ func iapTestAction(ctx *cli.Context) error {
 
 	iapCtx.SetExtraCRCData(u.GetCRCData(update.Internal))
 
+	// 0x2800 is hardcoded in the v1.03 updater, but it doesn't seem
+	// to matter - the AP code doesn't seem to pay attention to the
+	// address.
 	log.Println(">>> Attempt ReadData...")
 	data := make([]byte, 64)
 	addr := uint32(0x2800)
@@ -121,16 +124,19 @@ func iapTestAction(ctx *cli.Context) error {
 	log.Println(">>> Reset to IAP mode...")
 	iapCtx.Reset(false)
 
-	time.Sleep(1 * time.Second)
-
-	vid, pid = u.GetIAPVIDPID()
-
 	log.Println(">>> Connecting in IAP mode...")
-	iapCtx, err = iap.NewContext(vid, pid)
+	vid, pid = u.GetIAPVIDPID()
+	for i := 0; i < 10; i++ {
+		time.Sleep(100 * time.Millisecond)
+		iapCtx, err = iap.NewContext(vid, pid)
+		if err == nil {
+			break
+		}
+	}
 	if err != nil {
 		return err
 	}
-	defer iapCtx.Close()
+
 	defer func() {
 		log.Println("Reset back to AP mode...")
 		iapCtx.Reset(false)
@@ -138,8 +144,16 @@ func iapTestAction(ctx *cli.Context) error {
 
 	iapCtx.SetExtraCRCData(u.GetCRCData(update.Internal))
 
+	info, err := iapCtx.GetInformation()
+	if err != nil {
+		return err
+	}
+
+	log.Println(">>> Info:")
+	log.Println(info.String())
+
 	log.Println(">>> Attempt ReadData...")
-	addr = uint32(0x3c00)
+	addr = uint32(info.VersionAddr())
 	_, err = iapCtx.ReadData(addr, data[:])
 	if err != nil {
 		return err
@@ -153,14 +167,6 @@ func iapTestAction(ctx *cli.Context) error {
 		return errors.New("Ping() shouldn't work in IAP mode")
 	}
 	log.Println("timed out")
-
-	info, err := iapCtx.GetInformation()
-	if err != nil {
-		return err
-	}
-
-	log.Println(">>> Info:")
-	log.Println(info.String())
 
 	return nil
 }
