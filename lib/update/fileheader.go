@@ -3,10 +3,8 @@
 package update
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
-	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -19,7 +17,6 @@ type fileHeader struct {
 	fileKey        [4]byte
 	apVID, apPID   uint16
 	iapVID, iapPID uint16
-	headerVersion  HeaderVersion
 	wchars         bool
 	fwVersion      FWVersion
 	iapVersion     IAPVersion
@@ -28,13 +25,6 @@ type fileHeader struct {
 
 	rawData []byte
 }
-
-type HeaderVersion int
-
-const (
-	V1 HeaderVersion = 1
-	V2               = 2
-)
 
 func utf16BytesToString(a []byte) (string, error) {
 	if len(a)%2 != 0 {
@@ -63,6 +53,18 @@ func readString(b []byte, maxLen int, wide bool) string {
 	return strings.TrimRight(s, "\x00")
 }
 
+func (fh *fileHeader) decodeFirmwareVersion() error {
+	str := readString(fh.rawData[0x28:], 128, fh.wchars)
+
+	fwv, err := ParseFWVersion(str)
+	if err != nil {
+		return err
+	}
+
+	fh.fwVersion = fwv
+	return nil
+}
+
 type IAPVersion struct {
 	a, b, c int
 }
@@ -77,46 +79,6 @@ func (iapv IAPVersion) Matches(other IAPVersion) bool {
 
 func (iapv IAPVersion) String() string {
 	return fmt.Sprintf("v%0d.%0d.%0d", iapv.a, iapv.b, iapv.c)
-}
-
-var hvsRE *regexp.Regexp = regexp.MustCompile("V([0-9])\\.")
-
-func (fh *fileHeader) decodeHeaderVersion() (int, error) {
-	fh.wchars = (fh.rawData[0x29] == 0)
-	hvsLen := bytes.Index(fh.rawData[0x28:], []byte{'.'}) + 1
-	if fh.wchars {
-		hvsLen++
-	}
-
-	str := readString(fh.rawData[0x28:], hvsLen, fh.wchars)
-	matches := hvsRE.FindStringSubmatch(str)
-	if len(matches) != 2 {
-		return 0, fmt.Errorf("Can't parse: '%s'", str)
-	}
-	tmp, err := strconv.Atoi(matches[1])
-	if err != nil {
-		return 0, fmt.Errorf("Can't parse: '%s'", str)
-	}
-	fh.headerVersion = HeaderVersion(tmp)
-
-	return hvsLen, nil
-}
-
-func (fh *fileHeader) decodeFirmwareVersion(start int) error {
-	str := readString(fh.rawData[start:], 0xa8-start, fh.wchars)
-	var val float64
-	n, err := fmt.Sscanf(str, "%f", &val)
-	if n != 1 || err != nil {
-		return fmt.Errorf("Can't parse: '%s'", str)
-	}
-
-	major, minor := math.Modf(val)
-
-	fh.fwVersion = FWVersion{
-		major:    int(math.Floor(major)),
-		minor100: int(math.Floor(minor * 100)),
-	}
-	return nil
 }
 
 var iapRE *regexp.Regexp = regexp.MustCompile("IAP Version V([0-9]+)\\.([0-9]+)\\.([0-9]+)")
@@ -162,7 +124,6 @@ func (fh *fileHeader) crcData() []byte {
 
 func (fh fileHeader) String() string {
 	str := ""
-	str += fmt.Sprintf("Header version:   V%d\n", fh.headerVersion)
 	str += fmt.Sprintf("Firmware version: %s\n", fh.fwVersion)
 	str += fmt.Sprintf("Name:             %s\n", fh.name)
 	str += fmt.Sprintf("IAP version:      %s\n", fh.iapVersion)
@@ -214,12 +175,9 @@ func newFileHeader(rawData []byte) (*fileHeader, error) {
 	}
 	hdr.iapPID = uint16(tmp)
 
-	hvsLen, err := hdr.decodeHeaderVersion()
-	if err != nil {
-		return nil, errors.Wrap(err, "Decoding header version")
-	}
+	hdr.wchars = (hdr.rawData[41] == 0)
 
-	err = hdr.decodeFirmwareVersion(0x28 + hvsLen)
+	err = hdr.decodeFirmwareVersion()
 	if err != nil {
 		return nil, errors.Wrap(err, "Decoding firmware version")
 	}

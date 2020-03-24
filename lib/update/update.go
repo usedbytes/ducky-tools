@@ -6,22 +6,80 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"math"
+	"regexp"
 	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/usedbytes/log"
 )
 
+// Not totally sure about this
+type HWVersion int
+
+const (
+	HWVersionUnknown HWVersion = 0
+	HWVersionV1      HWVersion = 1 // US
+	HWVersionV2                = 2 // EU
+)
+
+func (hwv HWVersion) String() string {
+	return fmt.Sprintf("V%d", hwv)
+}
+
+func (hwv HWVersion) Matches(other HWVersion) bool {
+	return hwv == other
+}
+
+var hwvRE *regexp.Regexp = regexp.MustCompile("V([12])\\.")
+
+func ParseHWVersion(str string) (HWVersion, error) {
+	matches := hwvRE.FindStringSubmatch(str)
+	if len(matches) != 2 {
+		return HWVersionUnknown, fmt.Errorf("Can't parse: '%s'", str)
+	}
+
+	var val HWVersion
+	n, err := fmt.Sscanf(matches[1], "%d", &val)
+	if n != 1 || err != nil {
+		return HWVersionUnknown, fmt.Errorf("Can't parse: '%s'", str)
+	}
+
+	return val, nil
+}
+
 type FWVersion struct {
+	hwv             HWVersion
 	major, minor100 int
 }
 
+func ParseFWVersion(str string) (FWVersion, error) {
+	hwv, err := ParseHWVersion(str)
+	if err != nil {
+		return FWVersion{}, err
+	}
+
+	var val float64
+	n, err := fmt.Sscanf(str[3:], "%f", &val)
+	if n != 1 || err != nil {
+		return FWVersion{}, fmt.Errorf("Can't parse: '%s'", str)
+	}
+
+	major, minor := math.Modf(val)
+
+	return FWVersion{
+		hwv:      hwv,
+		major:    int(math.Floor(major)),
+		minor100: int(math.Floor(minor * 100)),
+	}, nil
+}
+
 func (fwv FWVersion) Matches(other FWVersion) bool {
-	return fwv.major == other.major && fwv.minor100 == other.minor100
+	return fwv.hwv.Matches(other.hwv) && fwv.major == other.major && fwv.minor100 == other.minor100
 }
 
 func (fwv FWVersion) String() string {
-	return fmt.Sprintf("v%.2f", float64(fwv.major)+float64(fwv.minor100)/100)
+	return fmt.Sprintf("%s.%.2f", fwv.hwv, float64(fwv.major)+float64(fwv.minor100)/100)
 }
 
 type Version struct {
@@ -34,6 +92,8 @@ type Version struct {
 var versions map[string]*Version = map[string]*Version{
 	"1.01": &Version{
 		version: FWVersion{
+			// FIXME: How to handle different HW vers?
+			hwv:      HWVersionV2,
 			major:    1,
 			minor100: 1,
 		},
@@ -43,6 +103,7 @@ var versions map[string]*Version = map[string]*Version{
 	},
 	"1.03r": &Version{
 		version: FWVersion{
+			hwv:      HWVersionV2,
 			major:    1,
 			minor100: 3,
 		},
