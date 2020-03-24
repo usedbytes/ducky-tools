@@ -463,6 +463,69 @@ func (c *Context) GetInformation() (IAPInfo, error) {
 	return info, nil
 }
 
+func (c *Context) readVersion(addr uint32) (string, error) {
+	// For whatever reason, we have to request a full 64 bytes or we get nothing
+	data := make([]byte, 64)
+	_, err := c.ReadData(uint32(addr), data)
+	if err != nil {
+		return "", err
+	}
+
+	length := binary.LittleEndian.Uint32(data[:4])
+	if length == 0xffffffff {
+		return "", errors.New("version length empty")
+	}
+
+	if length > 0x40 {
+		return "", errors.New("version string too long")
+	}
+
+	_, err = c.ReadData(uint32(addr)+4, data)
+	if err != nil {
+		return "", err
+	}
+
+	return string(data), nil
+}
+
+func (c *Context) GetVersion(i IAPInfo) (update.FWVersion, error) {
+	if c.closed {
+		return update.FWVersion{}, closedErr
+	}
+
+	addr := i.VersionAddr()
+	str, err := c.readVersion(addr)
+	if err != nil {
+		return update.FWVersion{}, err
+	}
+
+	fwv, err := update.ParseFWVersion(str)
+	if err != nil {
+		return update.FWVersion{}, err
+	}
+
+	return fwv, nil
+}
+
+func (c *Context) EraseVersion(i IAPInfo) error {
+	if c.closed {
+		return closedErr
+	}
+
+	addr := i.VersionAddr()
+	str, err := c.readVersion(addr)
+	if err != nil {
+		return err
+	}
+
+	err = c.ErasePage(addr, len(str)+4)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 type Status int
 
 const (
