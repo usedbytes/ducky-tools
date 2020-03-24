@@ -433,9 +433,9 @@ func (i IAPInfo) String() string {
 	return s
 }
 
-func (c *Context) GetInformation() (*IAPInfo, error) {
+func (c *Context) GetInformation() (IAPInfo, error) {
 	if c.closed {
-		return nil, closedErr
+		return IAPInfo{}, closedErr
 	}
 
 	packet := []byte{
@@ -445,18 +445,18 @@ func (c *Context) GetInformation() (*IAPInfo, error) {
 
 	_, err := c.sendPacket(packet)
 	if err != nil {
-		return nil, err
+		return IAPInfo{}, err
 	}
 
 	rxbuf := make([]byte, 64)
 	n, err := c.readPacket(rxbuf)
 	if err != nil {
-		return nil, err
+		return IAPInfo{}, err
 	} else if n != len(rxbuf) {
-		return nil, errors.New("short read")
+		return IAPInfo{}, errors.New("short read")
 	}
 
-	info := &IAPInfo{
+	info := IAPInfo{
 		rawData: rxbuf,
 	}
 
