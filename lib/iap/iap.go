@@ -485,7 +485,38 @@ func (c *Context) readVersion(addr uint32) (string, error) {
 		return "", err
 	}
 
-	return string(data), nil
+	return string(data[:length]), nil
+}
+
+func (c *Context) APGetVersion() (update.FWVersion, error) {
+	if c.closed {
+		return update.FWVersion{}, closedErr
+	}
+
+	// 0x2800 is hardcoded in the v1.03 updater, but it doesn't seem
+	// to matter - the AP code doesn't seem to pay attention to the
+	// address
+	data := make([]byte, 64)
+	_, err := c.ReadData(0x2800, data)
+	if err != nil {
+		return update.FWVersion{}, err
+	}
+
+	length := binary.LittleEndian.Uint32(data[:4])
+	if length == 0xffffffff {
+		return update.FWVersion{}, errors.New("version length empty")
+	}
+
+	if length > 0x40 {
+		return update.FWVersion{}, errors.New("version string too long")
+	}
+
+	fwv, err := update.ParseFWVersion(string(data[4 : 4+length]))
+	if err != nil {
+		return update.FWVersion{}, err
+	}
+
+	return fwv, nil
 }
 
 func (c *Context) GetVersion(i IAPInfo) (update.FWVersion, error) {
