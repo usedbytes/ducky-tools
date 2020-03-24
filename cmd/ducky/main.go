@@ -4,7 +4,6 @@ package main
 
 import (
 	"encoding/binary"
-	"encoding/hex"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -102,24 +101,20 @@ func iapTestAction(ctx *cli.Context) error {
 	}
 	defer iapCtx.Close()
 
-	iapCtx.SetExtraCRCData(u.GetCRCData(update.Internal))
-
-	// 0x2800 is hardcoded in the v1.03 updater, but it doesn't seem
-	// to matter - the AP code doesn't seem to pay attention to the
-	// address.
-	log.Println(">>> Attempt ReadData...")
-	data := make([]byte, 64)
-	addr := uint32(0x2800)
-	_, err = iapCtx.ReadData(addr, data[:])
-	if err != nil {
-		return err
-	}
-	log.Printf("AP 0x%04x (%d)\n", addr, addr)
-	log.Println(hex.Dump(data))
-
 	log.Print(">>> Attempt Ping... ")
 	pong, _ := iapCtx.Ping(42)
 	log.Println("pong")
+
+	log.Println(">>> Get Version:")
+	fwv, err := iapCtx.APGetVersion()
+	if err != nil {
+		return err
+	}
+
+	log.Println(fwv)
+	if !u.Compatible(fwv) {
+		return fmt.Errorf("versions incompatible. Update: %s, Device: %s", u.GetVersion(), fwv)
+	}
 
 	log.Println(">>> Reset to IAP mode...")
 	iapCtx.Reset(false)
@@ -152,14 +147,15 @@ func iapTestAction(ctx *cli.Context) error {
 	log.Println(">>> Info:")
 	log.Println(info.String())
 
-	log.Println(">>> Attempt ReadData...")
-	addr = uint32(info.VersionAddr())
-	_, err = iapCtx.ReadData(addr, data[:])
+	fwv2, err := iapCtx.GetVersion(info)
 	if err != nil {
 		return err
 	}
-	log.Printf("IAP 0x%04x (%d)\n", addr, addr)
-	log.Println(hex.Dump(data))
+
+	log.Println(">>> Version:", fwv2)
+	if !fwv2.Matches(fwv) {
+		return fmt.Errorf("version inconsistent. AP: %s, IAP: %s", fwv, fwv2)
+	}
 
 	log.Print(">>> Attempt Ping (should time out)... ")
 	pong, err = iapCtx.Ping(42)
