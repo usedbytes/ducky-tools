@@ -323,24 +323,26 @@ func foo(ctx *cli.Context) error {
 		return err
 	}
 
-	_, err = iapCtx.GetStatus()
+	// Drain the status buffer. It returns some different values in response
+	// to the CRC check, but I don't know what they mean.
+	status, err := iapCtx.GetStatus()
 	if err != nil {
-		log.Println("GetStatus:", err)
+		return err
+	}
+	ok, fail := 0, 0
+	for _, s := range status {
+		if s.IsOK() {
+			ok++
+		} else if s.IsFail() {
+			fail++
+		}
+	}
+	if fail != 0 || ok != 1 {
+		return errors.New("status report not OK")
 	}
 
 	log.Println(">>> Write version...")
-	err = iapCtx.WriteData(0x3c00, []byte{0x07, 0x00, 0x00, 0x00, 0x56, 0x32, 0x2e, 0x31, 0x2e, 0x30, 0x33, 0x00})
-	if err != nil {
-		return err
-	}
-
-	err = iapCtx.CheckStatus(1)
-	if err != nil {
-		return err
-	}
-
-	log.Println(">>> Verify version...")
-	err = iapCtx.VerifyData(0x3c00, []byte{0x07, 0x00, 0x00, 0x00, 0x56, 0x32, 0x2e, 0x31, 0x2e, 0x30, 0x33, 0x00})
+	err = iapCtx.WriteVersion(info, u.GetVersion())
 	if err != nil {
 		return err
 	}
