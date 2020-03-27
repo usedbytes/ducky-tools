@@ -202,7 +202,7 @@ func enterIAP(u *update.Update) (*iap.Context, error) {
 	return iapCtx, err
 }
 
-func foo(ctx *cli.Context) error {
+func update(ctx *cli.Context) error {
 	u, _, err := loadUpdateFile(ctx)
 	if err != nil {
 		return err
@@ -259,8 +259,9 @@ func foo(ctx *cli.Context) error {
 
 	log.Println(">>> Write program...")
 	i := 0
-	for start := 0; start < len(fw); start += 0x34 {
-		end := start + 0x34
+	chunkLen := 0x34
+	for start := 0; start < len(fw); start += chunkLen {
+		end := start + chunkLen
 		if end > len(fw) {
 			end = len(fw)
 		}
@@ -278,37 +279,7 @@ func foo(ctx *cli.Context) error {
 			}
 			i = 0
 		}
-		addr += 0x34
-	}
-
-	err = iapCtx.CheckStatus(i)
-	if err != nil {
-		return err
-	}
-
-	log.Println(">>> Verify program...")
-	addr = info.StartAddr()
-	i = 0
-	for start := 0; start < len(fw); start += 0x34 {
-		end := start + 0x34
-		if end > len(fw) {
-			end = len(fw)
-		}
-
-		err = iapCtx.VerifyData(addr, fw[start:end])
-		if err != nil {
-			return err
-		}
-
-		i++
-		if i >= 16 {
-			err = iapCtx.CheckStatus(i)
-			if err != nil {
-				return err
-			}
-			i = 0
-		}
-		addr += 0x34
+		addr += uint32(chunkLen)
 	}
 
 	err = iapCtx.CheckStatus(i)
@@ -408,18 +379,19 @@ func main() {
 					},
 				},
 			},
-		},
-		{
-			Name:      "foo",
-			ArgsUsage: "INPUT_FILE",
-			Action:    foo,
-			Flags: []cli.Flag{
-				&cli.StringFlag{
-					Name:     "version",
-					Aliases:  []string{"V"},
-					Usage:    "Specify the updater version if it can't be found automatically",
-					Required: false,
-					Value:    "1.03r",
+			{
+				Name:      "update",
+				Usage:     "Flash an update.",
+				ArgsUsage: "INPUT_FILE",
+				Action:    update,
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:     "version",
+						Aliases:  []string{"V"},
+						Usage:    "Specify the updater version if it can't be found automatically",
+						Required: false,
+						Value:    "1.03r",
+					},
 				},
 			},
 		},
