@@ -202,7 +202,7 @@ func enterIAP(u *update.Update) (*iap.Context, error) {
 	return iapCtx, err
 }
 
-func update(ctx *cli.Context) error {
+func updateAction(ctx *cli.Context) error {
 	u, _, err := loadUpdateFile(ctx)
 	if err != nil {
 		return err
@@ -378,19 +378,19 @@ func main() {
 						},
 					},
 				},
-			},
-			{
-				Name:      "update",
-				Usage:     "Flash an update.",
-				ArgsUsage: "INPUT_FILE",
-				Action:    update,
-				Flags: []cli.Flag{
-					&cli.StringFlag{
-						Name:     "version",
-						Aliases:  []string{"V"},
-						Usage:    "Specify the updater version if it can't be found automatically",
-						Required: false,
-						Value:    "1.03r",
+				{
+					Name:      "update",
+					Usage:     "Flash an update.",
+					ArgsUsage: "INPUT_FILE",
+					Action:    updateAction,
+					Flags: []cli.Flag{
+						&cli.StringFlag{
+							Name:     "version",
+							Aliases:  []string{"V"},
+							Usage:    "Specify the updater version if it can't be found automatically",
+							Required: false,
+							Value:    "1.03r",
+						},
 					},
 				},
 			},
