@@ -557,6 +557,27 @@ func (c *Context) EraseVersion(i IAPInfo) error {
 	return nil
 }
 
+func (c *Context) WriteVersion(i IAPInfo, v update.FWVersion) error {
+	if c.closed {
+		return closedErr
+	}
+
+	addr := i.VersionAddr()
+
+	verStr := v.String()
+
+	data := make([]byte, len(verStr)+4)
+	binary.LittleEndian.PutUint32(data, uint32(len(verStr)))
+	copy(data[4:], verStr)
+
+	err := c.WriteData(addr, data)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 type StatusCode int
 
 const (
