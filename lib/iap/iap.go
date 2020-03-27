@@ -562,6 +562,7 @@ type Status int
 const (
 	StatusOK Status = iota
 	StatusFail
+	StatusUnknown
 )
 
 func (s Status) String() string {
@@ -600,7 +601,7 @@ func (c *Context) GetStatus() ([]Status, error) {
 		case 0:
 			return ret, nil
 		default:
-			return nil, errors.New("Unrecognised status code")
+			ret = append(ret, StatusUnknown)
 		}
 	}
 
