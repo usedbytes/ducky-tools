@@ -557,16 +557,29 @@ func (c *Context) EraseVersion(i IAPInfo) error {
 	return nil
 }
 
-type Status int
+type StatusCode int
 
 const (
-	StatusOK Status = iota
+	StatusOK StatusCode = iota
 	StatusFail
 	StatusUnknown
 )
 
+type Status struct {
+	code StatusCode
+	val  byte
+}
+
+func (s Status) IsOK() bool {
+	return s.code == StatusOK
+}
+
+func (s Status) IsFail() bool {
+	return s.code == StatusFail
+}
+
 func (s Status) String() string {
-	switch s {
+	switch s.code {
 	case StatusOK:
 		return "OK"
 	case StatusFail:
@@ -595,13 +608,13 @@ func (c *Context) GetStatus() ([]Status, error) {
 	for _, v := range data {
 		switch v {
 		case 'O':
-			ret = append(ret, StatusOK)
+			ret = append(ret, Status{code: StatusOK, val: v})
 		case 'F':
-			ret = append(ret, StatusFail)
+			ret = append(ret, Status{code: StatusFail, val: v})
 		case 0:
 			return ret, nil
 		default:
-			ret = append(ret, StatusUnknown)
+			ret = append(ret, Status{code: StatusUnknown, val: v})
 		}
 	}
 
@@ -619,8 +632,10 @@ func (c *Context) CheckStatus(expected int) error {
 	}
 
 	for _, c := range codes {
-		if c != StatusOK {
+		if c.IsFail() {
 			return errors.New("encountered status Fail")
+		} else if !c.IsOK() {
+			return fmt.Errorf("encountered unknown status code '%v'", c.val)
 		}
 	}
 
