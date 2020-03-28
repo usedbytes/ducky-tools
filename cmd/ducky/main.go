@@ -220,9 +220,10 @@ func updateAction(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	log.Println(info)
 
 	log.Println("Device Info:")
+	log.Println(info)
+
 	fwv, err := iapCtx.GetVersion(info)
 	if err != nil {
 		return err
