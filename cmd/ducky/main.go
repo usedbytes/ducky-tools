@@ -16,6 +16,8 @@ import (
 	"github.com/usedbytes/ducky-tools/lib/iap"
 	"github.com/usedbytes/ducky-tools/lib/update"
 	"github.com/usedbytes/log"
+
+	"github.com/sigurn/crc16"
 )
 
 func loadUpdateFile(ctx *cli.Context) (*update.Update, string, error) {
@@ -323,6 +325,129 @@ func updateAction(ctx *cli.Context) error {
 
 }
 
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func dumpAction(ctx *cli.Context) error {
+	u, _, err := loadUpdateFile(ctx)
+	if err != nil {
+		return err
+	}
+
+	iapCtx, err := enterIAP(u)
+	if err != nil {
+		return err
+	}
+	defer iapCtx.Reset(false)
+
+	iapCtx.SetExtraCRCData(u.GetCRCData(update.Internal))
+
+	info, err := iapCtx.GetInformation()
+	if err != nil {
+		return err
+	}
+
+	log.Println("Device Info:")
+	log.Println(info)
+
+	err = iapCtx.CheckStatus(-1)
+	if err != nil {
+		return err
+	}
+
+	crct := crc16.MakeTable(crc16.CRC16_XMODEM)
+	lu := make(map[uint16]byte)
+	for i := 0; i < 256; i++ {
+		crc := crc16.Checksum([]byte{byte(i)}, crct)
+		lu[crc] = byte(i)
+	}
+
+	if len(lu) != 256 {
+		return errors.New("CRC table isn't 256 long")
+	}
+
+	// The CRC we send has to match the expected value, which is updated in
+	// two ways:
+	// 1) On each invocation of WriteData(..., data):
+	//     crc = crc16.Update(crc, XORDecode(data), crc16.MakeTable(crc16.CRC16_XMODEM))
+	// 2) On each invocation of CRCCheck():
+	//     crc = crc16.Update(crc, secret, crc16.MakeTable(crc16.CRC16_XMODEM))
+	// We're running on a clean reset and never call WriteData(), so we just
+	// need to update according to the CRCCheck() path.
+	//
+	// If the check fails, the firmware will be erased!
+
+	// crc is initialised to zero at boot
+	crc := uint16(0)
+
+	// secret is hard-coded in the IAP code
+	secret := []byte{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF}
+
+	dump := make([]byte, 16)
+
+	start := ctx.Int("start")
+	end := start + ctx.Int("length")
+	log.Printf(">>> Dump range [0x%08x:0x%08x):\n", start, end)
+
+	var f *os.File
+	fname := ctx.String("outfile")
+	if len(fname) != 0 {
+		f, err = os.Create(fname)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+	}
+
+	for addr, i := start, 0; addr < end; addr, i = addr+1, i+1 {
+		if i % 16 == 0 {
+			if i > 0 {
+				log.Print("\n")
+				if f != nil {
+					n, err := f.Write(dump)
+					if err != nil {
+						return err
+					} else if n != len(dump) {
+						return errors.New("short write to outfile")
+					}
+				}
+			}
+			log.Printf("%08x  ", addr)
+
+			dump = dump[:0]
+			i = 0
+		}
+
+		crc = crc16.Update(crc, secret, crct)
+
+		xcrc, err := iapCtx.CRCCheck(uint32(addr), 1, crc)
+		if err != nil {
+			return err
+		}
+
+		val := lu[xcrc]
+
+		log.Printf("%02x ", val)
+
+		dump = append(dump, val)
+	}
+	log.Print("\n")
+	if f != nil {
+		n, err := f.Write(dump)
+		if err != nil {
+			return err
+		} else if n != len(dump) {
+			return errors.New("short write to outfile")
+		}
+	}
+
+	return nil
+}
+
 func main() {
 	app := &cli.App{
 		Name:  "ducky",
@@ -390,6 +515,32 @@ func main() {
 							Usage:    "Specify the updater version if it can't be found automatically",
 							Required: false,
 							Value:    "1.03r",
+						},
+					},
+				},
+				{
+					Name:      "dump",
+					Usage:     "Dump memory using CheckCRC(). Note that errors may result the firmware being erased!\n\nINPUT_FILE is required for correct packet CRC calculation.",
+					ArgsUsage: "INPUT_FILE",
+					Action:    dumpAction,
+					Flags: []cli.Flag{
+						&cli.IntFlag{
+							Name:     "start",
+							Aliases:  []string{"s"},
+							Usage:    "Start address",
+							Required: true,
+						},
+						&cli.IntFlag{
+							Name:     "length",
+							Aliases:  []string{"l"},
+							Usage:    "Number of bytes to dump",
+							Required: true,
+						},
+						&cli.StringFlag{
+							Name:     "outfile",
+							Aliases:  []string{"o"},
+							Usage:    "Output file to write data to",
+							Required: false,
 						},
 					},
 				},
