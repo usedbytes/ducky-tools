@@ -298,29 +298,13 @@ func updateAction(ctx *cli.Context) error {
 	}
 
 	log.Println(">>> Check CRC...")
-	crc := u.GetCRCValue(update.Internal)
-	err = iapCtx.CRCCheck(info.StartAddr(), 1, crc)
-	if err != nil {
-		return err
-	}
 
-	// Drain the status buffer. It returns some different values in response
-	// to the CRC check, but I don't know what they mean.
-	status, err := iapCtx.GetStatus()
+	crc := u.GetCRCValue(update.Internal)
+	_, err = iapCtx.CRCCheck(info.StartAddr(), 1, crc)
 	if err != nil {
 		return err
 	}
-	ok, fail := 0, 0
-	for _, s := range status {
-		if s.IsOK() {
-			ok++
-		} else if s.IsFail() {
-			fail++
-		}
-	}
-	if fail != 0 || ok != 1 {
-		return errors.New("status report not OK")
-	}
+	// CRCCheck() will drain the status buffer
 
 	log.Println(">>> Write version...")
 	err = iapCtx.WriteVersion(info, u.GetVersion())

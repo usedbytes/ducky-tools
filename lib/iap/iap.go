@@ -278,29 +278,71 @@ func (c *Context) VerifyData(start uint32, data []byte) error {
 	return err
 }
 
-func (c *Context) CRCCheck(start, length uint32, crc uint16) error {
+// CRCCheck() WILL ERASE THE FIRMWARE IF THE PASSED-IN 'crc' VALUE IS INCORRECT
+//
+// The correct 'crc' value is derived from data received and a secret string
+// stored in the IAP code. In the case of a firmware update, if the following
+// sequence is followed, then the correct 'crc' value is returned by
+// (*update.Update).GetCRCValue():
+//
+//   - Erase version string
+//   - Erase firmware region
+//   - Write encoded firmware data from (*update.Update).GetFWBlob(...).RawData()
+//     in 52-byte chunks, via WriteData()
+//   - Call CRCCheck() with 'crc' = (*update.Update).GetCRCValue(...)
+//
+// As well as performing the CRC check on the written data, CRCCheck() calculates
+// (and returns) the XMODEM CRC of 'length' bytes starting at 'start'. This is
+// returned in the same GET_REPORT response as used for GetStatus(). As a result,
+// this function drains the status buffer in order to retrieve the calculated CRC
+// value.
+func (c *Context) CRCCheck(start, length uint32, crc uint16) (uint16, error) {
 	if c.closed {
-		return closedErr
+		return 0, closedErr
+	}
+
+	// Dummy ping packet and drain status. Ping is just to prevent timeout
+	_, err := c.sendPacket([]byte{0xff, 0x00})
+	if err != nil {
+		return 0, err
+	}
+
+	_, err = c.GetStatus()
+	if err != nil {
+		return 0, err
 	}
 
 	packet := []byte{
 		0x02, 0x00,
 		0x00, 0x00, // Packet CRC
 		0x00, 0x00, 0x00, 0x00, // Start
-		0x00, 0x00, 0x00, 0x00, // End
+		0x00, 0x00, 0x00, 0x00, // Length
 		0x00, 0x00, // Check CRC
 	}
 
 	binary.LittleEndian.PutUint32(packet[4:], start)
-	binary.LittleEndian.PutUint32(packet[8:], start+uint32(length-1))
+	binary.LittleEndian.PutUint32(packet[8:], length)
 	binary.LittleEndian.PutUint16(packet[12:], crc)
 
-	_, err := c.sendPacket(packet)
+	_, err = c.sendPacket(packet)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
-	return err
+	status, err := c.RawControl()
+	if err != nil {
+		return 0, err
+	}
+
+	if status[2] != 'O' {
+		return 0, errors.New("expected OK response")
+	} else if status[3] != 0 {
+		return 0, errors.New("expected 3-byte response")
+	}
+
+	crc = binary.LittleEndian.Uint16(status[:2])
+
+	return crc, nil
 }
 
 // 'toIAP' is ignored when in AP mode. It always resets to IAP
@@ -650,6 +692,22 @@ func (c *Context) GetStatus() ([]Status, error) {
 	}
 
 	return nil, nil
+}
+
+func (c *Context) RawControl() ([]byte, error) {
+	if c.closed {
+		return nil, closedErr
+	}
+
+	data := make([]byte, 0x40)
+	n, err := c.dev.Control(0xa1, 0x1, 0x100, 1, data)
+	if err != nil {
+		return nil, err
+	} else if n != len(data) {
+		return nil, errors.New("short read")
+	}
+
+	return data, nil
 }
 
 func (c *Context) CheckStatus(expected int) error {
