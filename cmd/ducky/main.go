@@ -226,15 +226,24 @@ func updateAction(ctx *cli.Context) error {
 
 	fwv, err := iapCtx.GetVersion(info)
 	if err != nil {
-		return err
-	}
-	log.Println("Device Version:", fwv)
-	if !u.Compatible(fwv) {
-		return fmt.Errorf("versions incompatible. Update: %s, Device: %s", u.GetVersion(), fwv)
+		if !iap.IsVersionErased(err) {
+			return err
+		}
+
+		if !ctx.Bool("force") {
+			return errors.New("version string appears to be erased. Use --force to skip this check (DANGEROUS!)")
+		}
+
+		log.Println("!!! Version already erased. --force skipping")
+	} else {
+		log.Println("Device Version:", fwv)
+		if !u.Compatible(fwv) {
+			return fmt.Errorf("versions incompatible. Update: %s, Device: %s", u.GetVersion(), fwv)
+		}
 	}
 
 	log.Println(">>> Erase version...")
-	err = iapCtx.EraseVersion(info)
+	err = iapCtx.EraseVersion(info, ctx.Bool("force"))
 	if err != nil {
 		return err
 	}
@@ -385,6 +394,12 @@ func main() {
 					ArgsUsage: "INPUT_FILE",
 					Action:    updateAction,
 					Flags: []cli.Flag{
+						&cli.BoolFlag{
+							Name:     "force",
+							Usage:    "Don't abort if version string is already erased. Can be useful for recovery, but skips a safety check",
+							Required: false,
+							Value:    false,
+						},
 						&cli.StringFlag{
 							Name:     "version",
 							Aliases:  []string{"V"},

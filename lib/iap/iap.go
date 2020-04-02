@@ -463,6 +463,12 @@ func (c *Context) GetInformation() (IAPInfo, error) {
 	return info, nil
 }
 
+var versionErasedErr error = errors.New("version string erased")
+
+func IsVersionErased(e error) bool {
+	return e == versionErasedErr
+}
+
 func (c *Context) readVersion(addr uint32) (string, error) {
 	// For whatever reason, we have to request a full 64 bytes or we get nothing
 	data := make([]byte, 64)
@@ -473,7 +479,7 @@ func (c *Context) readVersion(addr uint32) (string, error) {
 
 	length := binary.LittleEndian.Uint32(data[:4])
 	if length == 0xffffffff {
-		return "", errors.New("version length empty")
+		return "", versionErasedErr
 	}
 
 	if length > 0x40 {
@@ -504,7 +510,7 @@ func (c *Context) APGetVersion() (update.FWVersion, error) {
 
 	length := binary.LittleEndian.Uint32(data[:4])
 	if length == 0xffffffff {
-		return update.FWVersion{}, errors.New("version length empty")
+		return update.FWVersion{}, versionErasedErr
 	}
 
 	if length > 0x40 {
@@ -538,18 +544,22 @@ func (c *Context) GetVersion(i IAPInfo) (update.FWVersion, error) {
 	return fwv, nil
 }
 
-func (c *Context) EraseVersion(i IAPInfo) error {
+func (c *Context) EraseVersion(i IAPInfo, force bool) error {
 	if c.closed {
 		return closedErr
 	}
 
 	addr := i.VersionAddr()
 	str, err := c.readVersion(addr)
+	length := len(str) + 4
 	if err != nil {
-		return err
+		if !force || !IsVersionErased(err) {
+			return err
+		}
+		length = 0x80 + 4
 	}
 
-	err = c.ErasePage(addr, len(str)+4)
+	err = c.ErasePage(addr, length)
 	if err != nil {
 		return err
 	}
