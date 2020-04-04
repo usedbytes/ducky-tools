@@ -73,39 +73,49 @@ func NewIAPVersion(a, b, c int) IAPVersion {
 	return IAPVersion{a: a, b: b, c: c}
 }
 
+var iapRE *regexp.Regexp = regexp.MustCompile("V([0-9]+)\\.([0-9]+)\\.([0-9]+)")
+func ParseIAPVersion(str string) (IAPVersion, error) {
+	matches := iapRE.FindStringSubmatch(str)
+	if len(matches) != 4 {
+		return IAPVersion{}, fmt.Errorf("Can't parse: '%s'", str)
+	}
+	a, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return IAPVersion{}, fmt.Errorf("Can't parse: '%s'", str)
+	}
+	b, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return IAPVersion{}, fmt.Errorf("Can't parse: '%s'", str)
+	}
+	c, err := strconv.Atoi(matches[3])
+	if err != nil {
+		return IAPVersion{}, fmt.Errorf("Can't parse: '%s'", str)
+	}
+
+	return NewIAPVersion(a, b, c), nil
+}
+
 func (iapv IAPVersion) Matches(other IAPVersion) bool {
 	return iapv.a == other.a && iapv.b == other.b && iapv.c == other.c
 }
 
 func (iapv IAPVersion) String() string {
-	return fmt.Sprintf("v%0d.%0d.%0d", iapv.a, iapv.b, iapv.c)
+	return fmt.Sprintf("V%0d.%0d.%0d", iapv.a, iapv.b, iapv.c)
 }
 
-var iapRE *regexp.Regexp = regexp.MustCompile("IAP Version V([0-9]+)\\.([0-9]+)\\.([0-9]+)")
-
 func (fh *fileHeader) decodeIAPVersion() error {
+	prefix := "IAP Version "
 	str := readString(fh.rawData[0x128:], 0x80, fh.wchars)
 
-	matches := iapRE.FindStringSubmatch(str)
-	if len(matches) != 4 {
+	if !strings.HasPrefix(str, prefix) {
 		return fmt.Errorf("Can't parse: '%s'", str)
 	}
-	a, err := strconv.Atoi(matches[1])
-	if err != nil {
-		return fmt.Errorf("Can't parse: '%s'", str)
-	}
-	b, err := strconv.Atoi(matches[2])
-	if err != nil {
-		return fmt.Errorf("Can't parse: '%s'", str)
-	}
-	c, err := strconv.Atoi(matches[3])
-	if err != nil {
-		return fmt.Errorf("Can't parse: '%s'", str)
-	}
+	str = strings.TrimPrefix(str, prefix)
 
-	fh.iapVersion = IAPVersion{a: a, b: b, c: c}
+	v, err := ParseIAPVersion(str)
+	fh.iapVersion = v
 
-	return nil
+	return err
 }
 
 func (fh *fileHeader) crcValue() uint16 {
