@@ -8,7 +8,6 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -30,21 +29,19 @@ func loadUpdateFile(ctx *cli.Context) (*update.Update, string, error) {
 	// Attempt to automatically get the version, based on Ducky's file
 	// naming convention
 	if !ctx.IsSet("version") {
-		fname = filepath.Base(fname)
-		if filepath.Ext(fname) != ".exe" {
-			return nil, "", fmt.Errorf("No version specified and it couldn't be determined")
+		var err error
+		ver, err = update.ParseExeVersion(fname)
+		if err != nil {
+			return nil, "", nil
 		}
-
-		toks := strings.SplitAfter(strings.TrimSuffix(fname, ".exe"), "_")
-		ver = toks[len(toks)-1]
 	}
 
-	u, err := update.LoadExeUpdate(ctx.Args().First(), ver)
+	u, err := update.LoadExeUpdate(fname, ver)
 	if err != nil {
 		return nil, "", err
 	}
 
-	return u, fname, nil
+	return u, filepath.Base(fname), nil
 }
 
 func extractAction(ctx *cli.Context) error {

@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/usedbytes/log"
@@ -167,6 +169,23 @@ func (u *exeUpdate) load(f io.ReadSeeker) error {
 	log.Verbosef("Image Header (External):\n%s\n", hex.Dump(u.imageHdr[External].rawData))
 
 	return nil
+}
+
+func ParseExeVersion(fname string) (string, error) {
+	fname = filepath.Base(fname)
+	if filepath.Ext(fname) != ".exe" {
+		return "", fmt.Errorf("couldn't determine version from filename")
+	}
+
+	toks := strings.SplitAfter(strings.TrimSuffix(fname, ".exe"), "_")
+	ver := toks[len(toks)-1]
+
+	v := exeVersions[ver]
+	if v == nil {
+		return "", errors.Errorf("unrecognised exe version '%s'", ver)
+	}
+
+	return ver, nil
 }
 
 func LoadExeUpdate(file string, ver string) (*Update, error) {
