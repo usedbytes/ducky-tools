@@ -25,20 +25,31 @@ func loadUpdateFile(ctx *cli.Context) (*update.Update, string, error) {
 	}
 	fname := ctx.Args().First()
 
-	ver := ctx.String("version")
-	// Attempt to automatically get the version, based on Ducky's file
-	// naming convention
-	if !ctx.IsSet("version") {
-		var err error
-		ver, err = update.ParseExeVersion(fname)
-		if err != nil {
-			return nil, "", nil
-		}
-	}
+	var u *update.Update
+	var err error
 
-	u, err := update.LoadExeUpdate(fname, ver)
-	if err != nil {
-		return nil, "", err
+	ext := filepath.Ext(fname)
+	switch ext {
+	case ".exe":
+		ver := ctx.String("version")
+		// Attempt to automatically get the version, based on Ducky's file
+		// naming convention
+		if !ctx.IsSet("version") {
+			ver, err = update.ParseExeVersion(fname)
+			if err != nil {
+				return nil, "", nil
+			}
+		}
+
+		u, err = update.LoadExeUpdate(fname, ver)
+		if err != nil {
+			return nil, "", err
+		}
+	case ".toml":
+		u, err = update.LoadTOMLUpdate(fname)
+		if err != nil {
+			return nil, "", err
+		}
 	}
 
 	return u, filepath.Base(fname), nil
