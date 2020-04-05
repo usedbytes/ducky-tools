@@ -52,6 +52,11 @@ func loadUpdateFile(ctx *cli.Context) (*update.Update, string, error) {
 		}
 	}
 
+	err = u.Validate()
+	if err != nil {
+		return nil, "", err
+	}
+
 	log.Verbosef("Update loaded:\n%s", u)
 
 	return u, filepath.Base(fname), nil
