@@ -52,6 +52,8 @@ func loadUpdateFile(ctx *cli.Context) (*update.Update, string, error) {
 		}
 	}
 
+	log.Verbosef("Update loaded:\n%s", u)
+
 	return u, filepath.Base(fname), nil
 }
 

@@ -94,3 +94,14 @@ const (
 	Internal ImageNumber = iota
 	External
 )
+
+func (i ImageNumber) String() string {
+	switch i {
+	case Internal:
+		return "internal"
+	case External:
+		return "external"
+	}
+
+	return "???"
+}
