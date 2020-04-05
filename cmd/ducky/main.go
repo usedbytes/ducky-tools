@@ -3,9 +3,7 @@
 package main
 
 import (
-	"encoding/binary"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"time"
@@ -68,29 +66,24 @@ func extractAction(ctx *cli.Context) error {
 		return err
 	}
 
-	img := u.Images[update.Internal]
+	if ctx.IsSet("out") {
+		fname = ctx.String("out")
+	} else {
+		fname = filepath.Base(fname)
+		if filepath.Ext(fname) != ".toml" {
+			fname = fname + ".toml"
+		}
+	}
+	u.Name = filepath.Base(fname)
 
-	fwname := fname + ".enc.bin"
-	err = ioutil.WriteFile(fwname, img.Data, 0644)
+	err = u.WriteTOML(fname)
 	if err != nil {
 		return err
 	}
 
-	exname := fname + ".extra.bin"
-	err = ioutil.WriteFile(exname, img.ExtraCRC, 0644)
-	if err != nil {
-		return err
-	}
+	log.Println("Wrote to", fname)
 
-	crcname := fname + ".crc.bin"
-	crc := make([]byte, 2)
-	binary.LittleEndian.PutUint16(crc, img.CheckCRC)
-	err = ioutil.WriteFile(crcname, crc, 0644)
-	if err != nil {
-		return err
-	}
-
-	return err
+	return nil
 }
 
 func iapTestAction(ctx *cli.Context) error {
@@ -496,6 +489,12 @@ func main() {
 					Usage:    "Specify the updater version if it can't be found automatically",
 					Required: false,
 					Value:    "1.03r",
+				},
+				&cli.StringFlag{
+					Name:     "out",
+					Aliases:  []string{"o"},
+					Usage:    "Output filename (.toml)",
+					Required: false,
 				},
 			},
 		},
