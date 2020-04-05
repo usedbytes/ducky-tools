@@ -132,6 +132,14 @@ func (fh *fileHeader) crcData() []byte {
 	return []byte{}
 }
 
+func hexByteString(a []byte) string {
+	var chars []string
+	for _, v := range a {
+		chars = append(chars, fmt.Sprintf("%2x", v))
+	}
+	return strings.Join(chars, " ")
+}
+
 func (fh fileHeader) String() string {
 	str := ""
 	str += fmt.Sprintf("Firmware version: %s\n", fh.fwVersion)

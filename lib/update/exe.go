@@ -6,103 +6,20 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"math"
-	"regexp"
-	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/usedbytes/log"
 )
 
-// Not totally sure about this
-type HWVersion int
-
-const (
-	HWVersionUnknown HWVersion = 0
-	HWVersionV1      HWVersion = 1 // US
-	HWVersionV2                = 2 // EU
-)
-
-func (hwv HWVersion) String() string {
-	if hwv == HWVersionUnknown {
-		return "V?"
-	}
-	return fmt.Sprintf("V%d", hwv)
-}
-
-func (hwv HWVersion) Matches(other HWVersion) bool {
-	return hwv == other
-}
-
-func (hwv HWVersion) Compatible(other HWVersion) bool {
-	return (hwv == HWVersionUnknown) || (other == HWVersionUnknown) || hwv == other
-}
-
-var hwvRE *regexp.Regexp = regexp.MustCompile("V([12])\\.")
-
-func ParseHWVersion(str string) (HWVersion, error) {
-	matches := hwvRE.FindStringSubmatch(str)
-	if len(matches) != 2 {
-		return HWVersionUnknown, fmt.Errorf("Can't parse: '%s'", str)
-	}
-
-	var val HWVersion
-	n, err := fmt.Sscanf(matches[1], "%d", &val)
-	if n != 1 || err != nil {
-		return HWVersionUnknown, fmt.Errorf("Can't parse: '%s'", str)
-	}
-
-	return val, nil
-}
-
-type FWVersion struct {
-	hwv             HWVersion
-	major, minor100 int
-}
-
-func ParseFWVersion(str string) (FWVersion, error) {
-	hwv, err := ParseHWVersion(str)
-	if err != nil {
-		return FWVersion{}, err
-	}
-
-	var val float64
-	n, err := fmt.Sscanf(str[3:], "%f", &val)
-	if n != 1 || err != nil {
-		return FWVersion{}, fmt.Errorf("Can't parse: '%s'", str[3:])
-	}
-
-	major, minor := math.Modf(val)
-
-	return FWVersion{
-		hwv:      hwv,
-		major:    int(math.Floor(major)),
-		minor100: int(math.Floor(minor * 100)),
-	}, nil
-}
-
-func (fwv FWVersion) Matches(other FWVersion) bool {
-	return fwv.hwv.Matches(other.hwv) && fwv.major == other.major && fwv.minor100 == other.minor100
-}
-
-// Compatibility for the major/minor isn't clear, so let's be conservative
-func (fwv FWVersion) Compatible(other FWVersion) bool {
-	return fwv.hwv.Compatible(other.hwv) && fwv.major == other.major
-}
-
-func (fwv FWVersion) String() string {
-	return fmt.Sprintf("%s.%.2f", fwv.hwv, float64(fwv.major)+float64(fwv.minor100)/100)
-}
-
-type UpdaterVersion struct {
+type exeVersion struct {
 	version       FWVersion
 	headerLen     int
 	chunkLen      int
 	globalCrcData bool
 }
 
-var versions map[string]*UpdaterVersion = map[string]*UpdaterVersion{
-	"1.01": &UpdaterVersion{
+var exeVersions map[string]*exeVersion = map[string]*exeVersion{
+	"1.01": &exeVersion{
 		version: FWVersion{
 			hwv:      HWVersionUnknown,
 			major:    1,
@@ -112,7 +29,7 @@ var versions map[string]*UpdaterVersion = map[string]*UpdaterVersion{
 		chunkLen:      0x54,
 		globalCrcData: false,
 	},
-	"1.03r": &UpdaterVersion{
+	"1.03r": &exeVersion{
 		version: FWVersion{
 			hwv:      HWVersionUnknown,
 			major:    1,
@@ -124,39 +41,24 @@ var versions map[string]*UpdaterVersion = map[string]*UpdaterVersion{
 	},
 }
 
-func hexByteString(a []byte) string {
-	var chars []string
-	for _, v := range a {
-		chars = append(chars, fmt.Sprintf("%2x", v))
-	}
-	return strings.Join(chars, " ")
-}
-
-type Update struct {
-	version  *UpdaterVersion
+type ExeUpdate struct {
+	version  *exeVersion
 	fileHdr  *fileHeader
 	imageHdr [2]*imageHeader
 	image    [2]*FWBlob
 }
 
-type ImageNumber int
-
-const (
-	Internal ImageNumber = iota
-	External
-)
-
-func NewUpdate(version string) *Update {
-	v := versions[version]
+func NewExeUpdate(version string) *ExeUpdate {
+	v := exeVersions[version]
 	if v == nil {
 		return nil
 	}
-	return &Update{
+	return &ExeUpdate{
 		version: v,
 	}
 }
 
-func (u *Update) loadFileHeader(f io.ReadSeeker) error {
+func (u *ExeUpdate) loadFileHeader(f io.ReadSeeker) error {
 	_, err := f.Seek(-int64(u.version.headerLen), 2)
 	if err != nil {
 		return errors.Wrap(err, "Seeking file header")
@@ -180,7 +82,7 @@ func (u *Update) loadFileHeader(f io.ReadSeeker) error {
 	return nil
 }
 
-func (u *Update) loadImageHeader(f io.ReadSeeker, num ImageNumber) error {
+func (u *ExeUpdate) loadImageHeader(f io.ReadSeeker, num ImageNumber) error {
 	_, err := f.Seek(-int64(u.version.headerLen+u.version.chunkLen*int(num+1)), 2)
 	if err != nil {
 		return errors.Wrap(err, "Seeking image header")
@@ -211,7 +113,7 @@ func (u *Update) loadImageHeader(f io.ReadSeeker, num ImageNumber) error {
 	return nil
 }
 
-func (u *Update) loadImage(f io.ReadSeeker, num ImageNumber) error {
+func (u *ExeUpdate) loadImage(f io.ReadSeeker, num ImageNumber) error {
 
 	offs := int64(len(u.fileHdr.rawData) + len(u.imageHdr[Internal].rawData) + len(u.imageHdr[External].rawData))
 	for i := 0; i <= int(num); i++ {
@@ -244,7 +146,7 @@ func (u *Update) loadImage(f io.ReadSeeker, num ImageNumber) error {
 	return nil
 }
 
-func (u *Update) Load(f io.ReadSeeker) error {
+func (u *ExeUpdate) Load(f io.ReadSeeker) error {
 	err := u.loadFileHeader(f)
 	if err != nil {
 		return err
@@ -278,7 +180,7 @@ func (u *Update) Load(f io.ReadSeeker) error {
 	return nil
 }
 
-func (u *Update) GetCRCValue(img ImageNumber) uint16 {
+func (u *ExeUpdate) GetCRCValue(img ImageNumber) uint16 {
 	if u.version.globalCrcData {
 		return u.fileHdr.crcValue()
 	} else {
@@ -291,7 +193,7 @@ func (u *Update) GetCRCValue(img ImageNumber) uint16 {
 	}
 }
 
-func (u *Update) GetCRCData(img ImageNumber) []byte {
+func (u *ExeUpdate) GetCRCData(img ImageNumber) []byte {
 	if u.version.globalCrcData {
 		return u.fileHdr.crcData()
 	} else {
@@ -304,7 +206,7 @@ func (u *Update) GetCRCData(img ImageNumber) []byte {
 	}
 }
 
-func (u *Update) GetFWBlob(img ImageNumber) *FWBlob {
+func (u *ExeUpdate) GetFWBlob(img ImageNumber) *FWBlob {
 	switch img {
 	case Internal, External:
 		return u.image[img]
@@ -313,19 +215,19 @@ func (u *Update) GetFWBlob(img ImageNumber) *FWBlob {
 	}
 }
 
-func (u *Update) GetAPVIDPID() (uint16, uint16) {
+func (u *ExeUpdate) GetAPVIDPID() (uint16, uint16) {
 	return u.fileHdr.apVID, u.fileHdr.apPID
 }
 
-func (u *Update) GetIAPVIDPID() (uint16, uint16) {
+func (u *ExeUpdate) GetIAPVIDPID() (uint16, uint16) {
 	return u.fileHdr.iapVID, u.fileHdr.iapPID
 }
 
-func (u *Update) Compatible(other FWVersion) bool {
+func (u *ExeUpdate) Compatible(other FWVersion) bool {
 	return u.fileHdr.fwVersion.Compatible(other)
 }
 
-func (u *Update) GetVersion() FWVersion {
+func (u *ExeUpdate) GetVersion() FWVersion {
 	if u.fileHdr != nil {
 		return u.fileHdr.fwVersion
 	}

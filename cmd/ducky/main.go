@@ -20,7 +20,7 @@ import (
 	"github.com/sigurn/crc16"
 )
 
-func loadUpdateFile(ctx *cli.Context) (*update.Update, string, error) {
+func loadUpdateFile(ctx *cli.Context) (*update.ExeUpdate, string, error) {
 	if ctx.Args().Len() != 1 {
 		return nil, "", fmt.Errorf("INPUT_FILE is required")
 	}
@@ -39,7 +39,7 @@ func loadUpdateFile(ctx *cli.Context) (*update.Update, string, error) {
 		ver = toks[len(toks)-1]
 	}
 
-	u := update.NewUpdate(ver)
+	u := update.NewExeUpdate(ver)
 	if u == nil {
 		return nil, fname, fmt.Errorf("Unrecognised version '%s'", ver)
 	}
@@ -169,7 +169,7 @@ func iapTestAction(ctx *cli.Context) error {
 	return nil
 }
 
-func enterIAP(u *update.Update) (*iap.Context, error) {
+func enterIAP(u *update.ExeUpdate) (*iap.Context, error) {
 	vid, pid := u.GetIAPVIDPID()
 	iapCtx, err := iap.NewContext(vid, pid)
 	if err != nil {
