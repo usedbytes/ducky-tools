@@ -3,9 +3,11 @@
 package update
 
 import (
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/pkg/errors"
 	"github.com/usedbytes/log"
@@ -178,6 +180,51 @@ func (u *ExeUpdate) Load(f io.ReadSeeker) error {
 	log.Verbosef("Image Header (External):\n%s\n", hex.Dump(u.imageHdr[External].rawData))
 
 	return nil
+}
+
+func LoadExeUpdate(file string, ver string) (*Update, error) {
+	eu := NewExeUpdate(ver)
+	if eu == nil {
+		return nil, errors.Errorf("unrecognised exe version '%s'", ver)
+	}
+
+	f, err := os.Open(file)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	err = eu.Load(f)
+	if err != nil {
+		return nil, err
+	}
+
+	u := Update{
+		Name:       eu.fileHdr.name,
+		Version:    eu.fileHdr.fwVersion,
+		IAPVersion: eu.fileHdr.iapVersion,
+		FileKey:    binary.LittleEndian.Uint32(eu.fileHdr.fileKey[:]),
+		APVID:      eu.fileHdr.apVID,
+		APPID:      eu.fileHdr.apPID,
+		IAPVID:     eu.fileHdr.iapVID,
+		IAPPID:     eu.fileHdr.iapPID,
+		Images:     make(map[ImageNumber]*Image),
+	}
+
+	for i := Internal; i <= External; i++ {
+		b := eu.GetFWBlob(i)
+		if len(b.RawData()) == 0 {
+			continue
+		}
+
+		u.Images[i] = &Image{
+			CheckCRC: eu.GetCRCValue(i),
+			Data:     b.RawData(),
+			ExtraCRC: append([]byte(nil), eu.GetCRCData(i)...),
+		}
+	}
+
+	return &u, nil
 }
 
 func (u *ExeUpdate) GetCRCValue(img ImageNumber) uint16 {
