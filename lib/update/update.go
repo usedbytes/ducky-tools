@@ -8,10 +8,10 @@ type Update struct {
 	IAPVersion IAPVersion
 	FileKey    uint32
 
-	APVID, APPID uint16
+	APVID, APPID   uint16
 	IAPVID, IAPPID uint16
 
-	Images     map[ImageNumber]*Image
+	Images map[ImageNumber]*Image
 }
 
 type Image struct {

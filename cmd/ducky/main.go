@@ -405,7 +405,7 @@ func dumpAction(ctx *cli.Context) error {
 	}
 
 	for addr, i := start, 0; addr < end; addr, i = addr+1, i+1 {
-		if i % 16 == 0 {
+		if i%16 == 0 {
 			if i > 0 {
 				log.Print("\n")
 				if f != nil {

@@ -74,6 +74,7 @@ func NewIAPVersion(a, b, c int) IAPVersion {
 }
 
 var iapRE *regexp.Regexp = regexp.MustCompile("V([0-9]+)\\.([0-9]+)\\.([0-9]+)")
+
 func ParseIAPVersion(str string) (IAPVersion, error) {
 	matches := iapRE.FindStringSubmatch(str)
 	if len(matches) != 4 {
