@@ -338,7 +338,14 @@ func dumpAction(ctx *cli.Context) error {
 		return err
 	}
 
+	// Force a reset to make sure we have a clean slate
 	iapCtx, err := enterIAP(u)
+	if err != nil {
+		return err
+	}
+	iapCtx.Reset(true)
+
+	iapCtx, err = enterIAP(u)
 	if err != nil {
 		return err
 	}
