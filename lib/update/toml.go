@@ -181,16 +181,10 @@ func (u *Update) WriteTOML(file string) error {
 		tu.Images[k.String()] = tb
 
 		if len(v.Data) != 0 {
-			var data []byte
-			if len(v.XferKey) != 0 {
-				tb.XferEncoded = false
-				data = XORDecode(v.Data, v.XferKey, false)
-			} else {
-				tb.XferEncoded = true
-				data = v.Data
-			}
-
-			tb.DataFile = fmt.Sprintf("%s.%s.bin", base, k)
+			// Always write out the encoded version
+			data := v.Data
+			mod := "enc"
+			tb.DataFile = fmt.Sprintf("%s.%s.%s.bin", base, k, mod)
 			fullname := filepath.Join(dir, tb.DataFile)
 
 			err := ioutil.WriteFile(fullname, data, 0644)
@@ -198,6 +192,22 @@ func (u *Update) WriteTOML(file string) error {
 				return err
 			}
 			defer removeIfTrue(fullname, &fail)
+
+			// But prefer to use the non-encoded version if possible
+			if len(v.XferKey) != 0 {
+				tb.XferEncoded = false
+				data = XORDecode(v.Data, v.XferKey, false)
+				mod = "plain"
+
+				tb.DataFile = fmt.Sprintf("%s.%s.%s.bin", base, k, mod)
+				fullname := filepath.Join(dir, tb.DataFile)
+
+				err := ioutil.WriteFile(fullname, data, 0644)
+				if err != nil {
+					return err
+				}
+				defer removeIfTrue(fullname, &fail)
+			}
 		}
 
 		if len(v.ExtraCRC) != 0 {
