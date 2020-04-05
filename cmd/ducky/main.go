@@ -20,7 +20,7 @@ import (
 	"github.com/sigurn/crc16"
 )
 
-func loadUpdateFile(ctx *cli.Context) (*update.ExeUpdate, string, error) {
+func loadUpdateFile(ctx *cli.Context) (*update.Update, string, error) {
 	if ctx.Args().Len() != 1 {
 		return nil, "", fmt.Errorf("INPUT_FILE is required")
 	}
@@ -39,20 +39,9 @@ func loadUpdateFile(ctx *cli.Context) (*update.ExeUpdate, string, error) {
 		ver = toks[len(toks)-1]
 	}
 
-	u := update.NewExeUpdate(ver)
-	if u == nil {
-		return nil, fname, fmt.Errorf("Unrecognised version '%s'", ver)
-	}
-
-	f, err := os.Open(ctx.Args().First())
+	u, err := update.LoadExeUpdate(ctx.Args().First(), ver)
 	if err != nil {
-		return nil, fname, errors.Wrap(err, "Opening input file")
-	}
-	defer f.Close()
-
-	err = u.Load(f)
-	if err != nil {
-		return nil, fname, err
+		return nil, "", err
 	}
 
 	return u, fname, nil
@@ -64,21 +53,23 @@ func extractAction(ctx *cli.Context) error {
 		return err
 	}
 
+	img := u.Images[update.Internal]
+
 	fwname := fname + ".enc.bin"
-	err = ioutil.WriteFile(fwname, u.GetFWBlob(update.Internal).RawData(), 0644)
+	err = ioutil.WriteFile(fwname, img.Data, 0644)
 	if err != nil {
 		return err
 	}
 
 	exname := fname + ".extra.bin"
-	err = ioutil.WriteFile(exname, u.GetCRCData(update.Internal), 0644)
+	err = ioutil.WriteFile(exname, img.ExtraCRC, 0644)
 	if err != nil {
 		return err
 	}
 
 	crcname := fname + ".crc.bin"
 	crc := make([]byte, 2)
-	binary.LittleEndian.PutUint16(crc, u.GetCRCValue(update.Internal))
+	binary.LittleEndian.PutUint16(crc, img.CheckCRC)
 	err = ioutil.WriteFile(crcname, crc, 0644)
 	if err != nil {
 		return err
@@ -94,7 +85,7 @@ func iapTestAction(ctx *cli.Context) error {
 		return err
 	}
 
-	vid, pid := u.GetAPVIDPID()
+	vid, pid := u.APVID, u.APPID
 
 	log.Println(">>> Connecting in AP mode...")
 	iapCtx, err := iap.NewContext(uint16(vid), uint16(pid))
@@ -114,15 +105,15 @@ func iapTestAction(ctx *cli.Context) error {
 	}
 
 	log.Println(fwv)
-	if !u.Compatible(fwv) {
-		return fmt.Errorf("versions incompatible. Update: %s, Device: %s", u.GetVersion(), fwv)
+	if !u.Version.Compatible(fwv) {
+		return fmt.Errorf("versions incompatible. Update: %s, Device: %s", u.Version, fwv)
 	}
 
 	log.Println(">>> Reset to IAP mode...")
 	iapCtx.Reset(false)
 
 	log.Println(">>> Connecting in IAP mode...")
-	vid, pid = u.GetIAPVIDPID()
+	vid, pid = u.IAPVID, u.IAPPID
 	for i := 0; i < 10; i++ {
 		time.Sleep(100 * time.Millisecond)
 		iapCtx, err = iap.NewContext(vid, pid)
@@ -139,7 +130,9 @@ func iapTestAction(ctx *cli.Context) error {
 		iapCtx.Reset(false)
 	}()
 
-	iapCtx.SetExtraCRCData(u.GetCRCData(update.Internal))
+	img := u.Images[update.Internal]
+
+	iapCtx.SetExtraCRCData(img.ExtraCRC)
 
 	info, err := iapCtx.GetInformation()
 	if err != nil {
@@ -169,11 +162,11 @@ func iapTestAction(ctx *cli.Context) error {
 	return nil
 }
 
-func enterIAP(u *update.ExeUpdate) (*iap.Context, error) {
-	vid, pid := u.GetIAPVIDPID()
+func enterIAP(u *update.Update) (*iap.Context, error) {
+	vid, pid := u.IAPVID, u.IAPPID
 	iapCtx, err := iap.NewContext(vid, pid)
 	if err != nil {
-		v, p := u.GetAPVIDPID()
+		v, p := u.APVID, u.APPID
 		iapCtx, err = iap.NewContext(v, p)
 		if err != nil {
 			return nil, err
@@ -186,8 +179,8 @@ func enterIAP(u *update.ExeUpdate) (*iap.Context, error) {
 		if err != nil {
 			return nil, err
 		}
-		if !u.Compatible(fwv) {
-			return nil, fmt.Errorf("versions incompatible. Update: %s, Device: %s", u.GetVersion(), fwv)
+		if !u.Version.Compatible(fwv) {
+			return nil, fmt.Errorf("versions incompatible. Update: %s, Device: %s", u.Version, fwv)
 		}
 
 		iapCtx.Reset(true)
@@ -216,7 +209,9 @@ func updateAction(ctx *cli.Context) error {
 	}
 	defer iapCtx.Reset(false)
 
-	iapCtx.SetExtraCRCData(u.GetCRCData(update.Internal))
+	img := u.Images[update.Internal]
+
+	iapCtx.SetExtraCRCData(img.ExtraCRC)
 
 	info, err := iapCtx.GetInformation()
 	if err != nil {
@@ -239,8 +234,8 @@ func updateAction(ctx *cli.Context) error {
 		log.Println("!!! Version already erased. --force skipping")
 	} else {
 		log.Println("Device Version:", fwv)
-		if !u.Compatible(fwv) {
-			return fmt.Errorf("versions incompatible. Update: %s, Device: %s", u.GetVersion(), fwv)
+		if !u.Version.Compatible(fwv) {
+			return fmt.Errorf("versions incompatible. Update: %s, Device: %s", u.Version, fwv)
 		}
 	}
 
@@ -255,7 +250,7 @@ func updateAction(ctx *cli.Context) error {
 		return err
 	}
 
-	fw := u.GetFWBlob(update.Internal).RawData()
+	fw := img.Data
 	addr := info.StartAddr()
 
 	log.Println(">>> Erase program...")
@@ -301,7 +296,7 @@ func updateAction(ctx *cli.Context) error {
 
 	log.Println(">>> Check CRC...")
 
-	crc := u.GetCRCValue(update.Internal)
+	crc := img.CheckCRC
 	_, err = iapCtx.CRCCheck(info.StartAddr(), 1, crc)
 	if err != nil {
 		return err
@@ -309,7 +304,7 @@ func updateAction(ctx *cli.Context) error {
 	// CRCCheck() will drain the status buffer
 
 	log.Println(">>> Write version...")
-	err = iapCtx.WriteVersion(info, u.GetVersion())
+	err = iapCtx.WriteVersion(info, u.Version)
 	if err != nil {
 		return err
 	}
@@ -351,7 +346,9 @@ func dumpAction(ctx *cli.Context) error {
 	}
 	defer iapCtx.Reset(false)
 
-	iapCtx.SetExtraCRCData(u.GetCRCData(update.Internal))
+	img := u.Images[update.Internal]
+
+	iapCtx.SetExtraCRCData(img.ExtraCRC)
 
 	info, err := iapCtx.GetInformation()
 	if err != nil {
