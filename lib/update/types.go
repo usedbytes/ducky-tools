@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"strconv"
 )
 
 // Not totally sure about this
@@ -104,4 +105,45 @@ func (i ImageNumber) String() string {
 	}
 
 	return "???"
+}
+
+type IAPVersion struct {
+	a, b, c int
+}
+
+var IAPVersion100 = IAPVersion{a: 1, b: 0, c: 0}
+
+func NewIAPVersion(a, b, c int) IAPVersion {
+	return IAPVersion{a: a, b: b, c: c}
+}
+
+var iapRE *regexp.Regexp = regexp.MustCompile("V([0-9]+)\\.([0-9]+)\\.([0-9]+)")
+
+func ParseIAPVersion(str string) (IAPVersion, error) {
+	matches := iapRE.FindStringSubmatch(str)
+	if len(matches) != 4 {
+		return IAPVersion{}, fmt.Errorf("Can't parse: '%s'", str)
+	}
+	a, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return IAPVersion{}, fmt.Errorf("Can't parse: '%s'", str)
+	}
+	b, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return IAPVersion{}, fmt.Errorf("Can't parse: '%s'", str)
+	}
+	c, err := strconv.Atoi(matches[3])
+	if err != nil {
+		return IAPVersion{}, fmt.Errorf("Can't parse: '%s'", str)
+	}
+
+	return NewIAPVersion(a, b, c), nil
+}
+
+func (iapv IAPVersion) Matches(other IAPVersion) bool {
+	return iapv.a == other.a && iapv.b == other.b && iapv.c == other.c
+}
+
+func (iapv IAPVersion) String() string {
+	return fmt.Sprintf("V%0d.%0d.%0d", iapv.a, iapv.b, iapv.c)
 }
