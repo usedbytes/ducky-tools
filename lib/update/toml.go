@@ -5,6 +5,7 @@ package update
 import (
 	"encoding/binary"
 	"io/ioutil"
+	"path/filepath"
 
 	"github.com/BurntSushi/toml"
 	"github.com/pkg/errors"
@@ -69,6 +70,12 @@ func LoadTOMLUpdate(file string) (*Update, error) {
 		return nil, errors.New("no images found")
 	}
 
+	abs, err := filepath.Abs(file)
+	if err != nil {
+		return nil, errors.New("couldn't determine absolute path")
+	}
+	dir := filepath.Dir(abs)
+
 	for k, v := range tu.Images {
 		var i Image
 		switch k {
@@ -81,6 +88,10 @@ func LoadTOMLUpdate(file string) (*Update, error) {
 		}
 
 		i.CheckCRC = v.CheckCRC
+
+		if !filepath.IsAbs(v.DataFile) {
+			v.DataFile = filepath.Join(dir, v.DataFile)
+		}
 
 		data, err := ioutil.ReadFile(v.DataFile)
 		if err != nil {
@@ -95,7 +106,11 @@ func LoadTOMLUpdate(file string) (*Update, error) {
 		}
 
 		if len(v.XferKeyFile) != 0 {
-			data, err = ioutil.ReadFile(v.XferKeyFile)
+			if !filepath.IsAbs(v.XferKeyFile) {
+				v.XferKeyFile = filepath.Join(dir, v.XferKeyFile)
+			}
+
+			data, err := ioutil.ReadFile(v.XferKeyFile)
 			if err != nil {
 				return nil, err
 			}
@@ -117,7 +132,11 @@ func LoadTOMLUpdate(file string) (*Update, error) {
 		}
 
 		if len(v.ExtraCRCFile) != 0 {
-			data, err = ioutil.ReadFile(v.ExtraCRCFile)
+			if !filepath.IsAbs(v.ExtraCRCFile) {
+				v.ExtraCRCFile = filepath.Join(dir, v.ExtraCRCFile)
+			}
+
+			data, err := ioutil.ReadFile(v.ExtraCRCFile)
 			if err != nil {
 				return nil, err
 			}
