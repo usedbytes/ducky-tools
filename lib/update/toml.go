@@ -24,7 +24,6 @@ type tomlUpdate struct {
 	IAPVerStr    string              `toml:"iap_version"`
 	VerStr       string              `toml:"version"`
 	FileKey      uint32              `toml:"file_key"`
-	ExtraCRCFile string              `toml:"extra_crc_data_file"`
 	ApVidPid     []uint16            `toml:"ap_vid_pid"`
 	IapVidPid    []uint16            `toml:"iap_vid_pid"`
 	Images       map[string]tomlBlob `toml:"images"`
