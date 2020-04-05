@@ -43,24 +43,14 @@ var exeVersions map[string]*exeVersion = map[string]*exeVersion{
 	},
 }
 
-type ExeUpdate struct {
-	version  *exeVersion
-	fileHdr  *fileHeader
-	imageHdr [2]*imageHeader
-	image    [2]*FWBlob
+type exeUpdate struct {
+	version   *exeVersion
+	fileHdr   *fileHeader
+	imageHdr  [2]*imageHeader
+	imageData [2][]byte
 }
 
-func NewExeUpdate(version string) *ExeUpdate {
-	v := exeVersions[version]
-	if v == nil {
-		return nil
-	}
-	return &ExeUpdate{
-		version: v,
-	}
-}
-
-func (u *ExeUpdate) loadFileHeader(f io.ReadSeeker) error {
+func (u *exeUpdate) loadFileHeader(f io.ReadSeeker) error {
 	_, err := f.Seek(-int64(u.version.headerLen), 2)
 	if err != nil {
 		return errors.Wrap(err, "Seeking file header")
@@ -84,7 +74,7 @@ func (u *ExeUpdate) loadFileHeader(f io.ReadSeeker) error {
 	return nil
 }
 
-func (u *ExeUpdate) loadImageHeader(f io.ReadSeeker, num ImageNumber) error {
+func (u *exeUpdate) loadImageHeader(f io.ReadSeeker, num ImageNumber) error {
 	_, err := f.Seek(-int64(u.version.headerLen+u.version.chunkLen*int(num+1)), 2)
 	if err != nil {
 		return errors.Wrap(err, "Seeking image header")
@@ -115,7 +105,7 @@ func (u *ExeUpdate) loadImageHeader(f io.ReadSeeker, num ImageNumber) error {
 	return nil
 }
 
-func (u *ExeUpdate) loadImage(f io.ReadSeeker, num ImageNumber) error {
+func (u *exeUpdate) loadImage(f io.ReadSeeker, num ImageNumber) error {
 
 	offs := int64(len(u.fileHdr.rawData) + len(u.imageHdr[Internal].rawData) + len(u.imageHdr[External].rawData))
 	for i := 0; i <= int(num); i++ {
@@ -133,14 +123,11 @@ func (u *ExeUpdate) loadImage(f io.ReadSeeker, num ImageNumber) error {
 		return errors.Wrap(err, "Reading image blob")
 	}
 
-	blob, err := newFWBlob(rawData, u.fileHdr.fileKey)
-	if err != nil {
-		return errors.Wrap(err, "Parsing image blob")
-	}
+	data := XORDecode(rawData, u.fileHdr.fileKey[:], true)
 
 	switch num {
 	case Internal, External:
-		u.image[num] = blob
+		u.imageData[num] = data
 	default:
 		return fmt.Errorf("Unrecognised image number")
 	}
@@ -148,7 +135,7 @@ func (u *ExeUpdate) loadImage(f io.ReadSeeker, num ImageNumber) error {
 	return nil
 }
 
-func (u *ExeUpdate) Load(f io.ReadSeeker) error {
+func (u *exeUpdate) load(f io.ReadSeeker) error {
 	err := u.loadFileHeader(f)
 	if err != nil {
 		return err
@@ -183,9 +170,12 @@ func (u *ExeUpdate) Load(f io.ReadSeeker) error {
 }
 
 func LoadExeUpdate(file string, ver string) (*Update, error) {
-	eu := NewExeUpdate(ver)
-	if eu == nil {
+	v := exeVersions[ver]
+	if v == nil {
 		return nil, errors.Errorf("unrecognised exe version '%s'", ver)
+	}
+	eu := &exeUpdate{
+		version: v,
 	}
 
 	f, err := os.Open(file)
@@ -194,7 +184,7 @@ func LoadExeUpdate(file string, ver string) (*Update, error) {
 	}
 	defer f.Close()
 
-	err = eu.Load(f)
+	err = eu.load(f)
 	if err != nil {
 		return nil, err
 	}
@@ -212,22 +202,22 @@ func LoadExeUpdate(file string, ver string) (*Update, error) {
 	}
 
 	for i := Internal; i <= External; i++ {
-		b := eu.GetFWBlob(i)
-		if len(b.RawData()) == 0 {
+		d := eu.getImageData(i)
+		if d == nil || len(d) == 0 {
 			continue
 		}
 
 		u.Images[i] = &Image{
-			CheckCRC: eu.GetCRCValue(i),
-			Data:     b.RawData(),
-			ExtraCRC: append([]byte(nil), eu.GetCRCData(i)...),
+			CheckCRC: eu.getCRCValue(i),
+			Data:     d,
+			ExtraCRC: append([]byte(nil), eu.getCRCData(i)...),
 		}
 	}
 
 	return &u, nil
 }
 
-func (u *ExeUpdate) GetCRCValue(img ImageNumber) uint16 {
+func (u *exeUpdate) getCRCValue(img ImageNumber) uint16 {
 	if u.version.globalCrcData {
 		return u.fileHdr.crcValue()
 	} else {
@@ -240,7 +230,7 @@ func (u *ExeUpdate) GetCRCValue(img ImageNumber) uint16 {
 	}
 }
 
-func (u *ExeUpdate) GetCRCData(img ImageNumber) []byte {
+func (u *exeUpdate) getCRCData(img ImageNumber) []byte {
 	if u.version.globalCrcData {
 		return u.fileHdr.crcData()
 	} else {
@@ -253,30 +243,19 @@ func (u *ExeUpdate) GetCRCData(img ImageNumber) []byte {
 	}
 }
 
-func (u *ExeUpdate) GetFWBlob(img ImageNumber) *FWBlob {
+func (u *exeUpdate) getImageData(img ImageNumber) []byte {
 	switch img {
 	case Internal, External:
-		return u.image[img]
+		return u.imageData[img]
 	default:
-		return &FWBlob{}
+		return nil
 	}
 }
 
-func (u *ExeUpdate) GetAPVIDPID() (uint16, uint16) {
+func (u *exeUpdate) getAPVIDPID() (uint16, uint16) {
 	return u.fileHdr.apVID, u.fileHdr.apPID
 }
 
-func (u *ExeUpdate) GetIAPVIDPID() (uint16, uint16) {
+func (u *exeUpdate) getIAPVIDPID() (uint16, uint16) {
 	return u.fileHdr.iapVID, u.fileHdr.iapPID
-}
-
-func (u *ExeUpdate) Compatible(other FWVersion) bool {
-	return u.fileHdr.fwVersion.Compatible(other)
-}
-
-func (u *ExeUpdate) GetVersion() FWVersion {
-	if u.fileHdr != nil {
-		return u.fileHdr.fwVersion
-	}
-	return u.version.version
 }
