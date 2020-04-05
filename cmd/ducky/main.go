@@ -36,7 +36,7 @@ func loadUpdateFile(ctx *cli.Context) (*update.Update, string, error) {
 		if !ctx.IsSet("version") {
 			ver, err = update.ParseExeVersion(fname)
 			if err != nil {
-				return nil, "", nil
+				return nil, "", err
 			}
 		}
 
@@ -49,6 +49,8 @@ func loadUpdateFile(ctx *cli.Context) (*update.Update, string, error) {
 		if err != nil {
 			return nil, "", err
 		}
+	default:
+		return nil, "", errors.New("unrecognised file extension")
 	}
 
 	err = u.Validate()
