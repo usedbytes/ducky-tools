@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"time"
@@ -75,6 +76,19 @@ func extractAction(ctx *cli.Context) error {
 		}
 	}
 	u.Name = filepath.Base(fname)
+
+	if ctx.IsSet("xferkey") {
+		key, err := ioutil.ReadFile(ctx.String("xferkey"))
+		if err != nil {
+			return err
+		}
+
+		for _, v := range u.Images {
+			if len(v.XferKey) == 0 {
+				v.XferKey = key
+			}
+		}
+	}
 
 	err = u.WriteTOML(fname)
 	if err != nil {
@@ -494,6 +508,12 @@ func main() {
 					Name:     "out",
 					Aliases:  []string{"o"},
 					Usage:    "Output filename (.toml)",
+					Required: false,
+				},
+				&cli.StringFlag{
+					Name:     "xferkey",
+					Aliases:  []string{"x"},
+					Usage:    "File containing the 52-byte transfer key (for decoding FW)",
 					Required: false,
 				},
 			},
