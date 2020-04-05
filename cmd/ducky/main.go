@@ -190,6 +190,19 @@ func extractKeyAction(ctx *cli.Context) error {
 
 	fmt.Println(hex.Dump(key[:]))
 
+	img.XferKey = key[:]
+	crc, err := img.CalculateCheckCRC()
+	if err != nil {
+		return err
+	}
+	log.Verbosef("Calculated CheckCRC: 0x%04x\n", crc)
+
+	if img.CheckCRC == crc {
+		log.Println("CRC Check confirmed! Key is correct.")
+	} else {
+		log.Println("CRC Check failed! Key may be incorrect.")
+	}
+
 	if ctx.IsSet("out") {
 		err := ioutil.WriteFile(ctx.String("out"), key[:], 0644)
 		if err != nil {
