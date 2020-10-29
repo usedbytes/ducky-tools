@@ -231,7 +231,12 @@ func iapTestAction(ctx *cli.Context) error {
 	defer iapCtx.Close()
 
 	log.Print(">>> Attempt Ping... ")
-	pong, _ := iapCtx.Ping(42)
+	pong, err := iapCtx.Ping(42)
+	if err != nil {
+		return err
+	} else if !pong{
+		return errors.New("invalid or no response to ping")
+	}
 	log.Println("pong")
 
 	log.Println(">>> Get Version:")
