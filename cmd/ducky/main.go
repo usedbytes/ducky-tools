@@ -14,6 +14,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/urfave/cli/v2"
 	"github.com/usedbytes/ducky-tools/lib/iap"
+	"github.com/usedbytes/ducky-tools/lib/iap2"
 	"github.com/usedbytes/ducky-tools/lib/update"
 	"github.com/usedbytes/log"
 
@@ -593,6 +594,59 @@ func dumpAction(ctx *cli.Context) error {
 	return nil
 }
 
+func iap2TestAction(ctx *cli.Context) error {
+	vid := ctx.Uint("vid")
+	pid := ctx.Uint("pid")
+
+	log.Println(">>> Connecting in AP mode...")
+	iapCtx, err := iap2.NewContext(uint16(vid), uint16(pid))
+	if err != nil {
+		return err
+	}
+	defer iapCtx.Close()
+
+	iap2Cmd := func(cmd []byte) error {
+		err := iapCtx.RawSend(cmd)
+		if err != nil {
+			return err
+		}
+
+		_, err = iapCtx.RawReceive()
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	err = iap2Cmd([]byte{0x10, 0x02})
+	if err != nil {
+		return err
+	}
+
+	err = iap2Cmd([]byte{0x12, 0x00})
+	if err != nil {
+		return err
+	}
+
+	err = iap2Cmd([]byte{0x12, 0x20})
+	if err != nil {
+		return err
+	}
+
+	err = iap2Cmd([]byte{0x12, 0x01})
+	if err != nil {
+		return err
+	}
+
+	err = iap2Cmd([]byte{0x12, 0x22})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func main() {
 	app := &cli.App{
 		Name:  "ducky",
@@ -719,6 +773,29 @@ func main() {
 							Aliases:  []string{"o"},
 							Usage:    "Output file to write data to",
 							Required: false,
+						},
+					},
+				},
+			},
+		},
+		{
+			Name: "iap2",
+			Subcommands: []*cli.Command{
+				{
+					Name:      "test",
+					Action:    iap2TestAction,
+					Flags: []cli.Flag{
+						&cli.UintFlag{
+							Name:     "vid",
+							Usage:    "Vendor ID (VID)",
+							Required: false,
+							Value:    0x04d9,
+						},
+						&cli.UintFlag{
+							Name:     "pid",
+							Aliases:  []string{"p"},
+							Usage:    "Product ID (PID)",
+							Required: true,
 						},
 					},
 				},
