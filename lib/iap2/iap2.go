@@ -292,6 +292,34 @@ func (c *Context) Reset(toIAP bool) error {
 	return err
 }
 
+func (c *Context) Ping(val byte) (bool, error) {
+	if c.closed {
+		return false, closedErr
+	}
+
+	packet := []byte{
+		0x10, 0x02,
+		val,
+	}
+
+	packet, err := c.sendPacket(packet)
+	if err != nil {
+		return false, err
+	}
+
+	response := [0x40]byte{}
+	_, err = c.readPacket(response[:])
+	if err != nil {
+		return false, err
+	}
+
+	if bytes.Compare(packet, response[:len(packet)]) != 0 {
+		return false, errors.New("command failed")
+	}
+
+	return true, nil
+}
+
 func Checksum(data []byte) uint32 {
 	lenWords := (len(data) + 3) / 4
 	tmp := make([]byte, lenWords * 4)
