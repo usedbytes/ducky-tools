@@ -256,7 +256,7 @@ func (c *Context) readPacket(packet []byte) (int, error) {
 		return 0, errors.New("Read transfers must be 64 bytes")
 	}
 
-	to, cancel := context.WithTimeout(c.bg, 1*time.Second)
+	to, cancel := context.WithTimeout(c.bg, 5*time.Second)
 	defer cancel()
 
 	n, err := c.inEp.ReadContext(to, packet)
