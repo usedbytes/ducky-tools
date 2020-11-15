@@ -292,6 +292,19 @@ func (c *Context) Reset(toIAP bool) error {
 	return err
 }
 
+func Checksum(data []byte) uint32 {
+	lenWords := (len(data) + 3) / 4
+	tmp := make([]byte, lenWords * 4)
+	copy(tmp, data)
+
+	var sum uint32
+	for i := 0; i < lenWords; i++ {
+		sum += binary.LittleEndian.Uint32(tmp[i * 4:(i + 1) * 4])
+	}
+
+	return sum
+}
+
 func (c *Context) Checksum(start, length uint32) (uint32, error) {
 	if c.closed {
 		return 0, closedErr
