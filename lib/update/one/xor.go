@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2020 Brian Starkey <stark3y@gmail.com>
-package update
+package one
 
 func XORDecode(data []byte, key []byte, withIdx bool) []byte {
 	res := make([]byte, len(data))

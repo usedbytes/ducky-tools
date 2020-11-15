@@ -15,19 +15,19 @@ import (
 	"github.com/urfave/cli/v2"
 	"github.com/usedbytes/ducky-tools/lib/iap"
 	"github.com/usedbytes/ducky-tools/lib/iap2"
-	"github.com/usedbytes/ducky-tools/lib/update"
+	"github.com/usedbytes/ducky-tools/lib/update/one"
 	"github.com/usedbytes/log"
 
 	"github.com/sigurn/crc16"
 )
 
-func loadUpdateFile(ctx *cli.Context) (*update.Update, string, error) {
+func loadUpdateFile(ctx *cli.Context) (*one.Update, string, error) {
 	if ctx.Args().Len() != 1 {
 		return nil, "", fmt.Errorf("INPUT_FILE is required")
 	}
 	fname := ctx.Args().First()
 
-	var u *update.Update
+	var u *one.Update
 	var err error
 
 	ext := filepath.Ext(fname)
@@ -37,18 +37,18 @@ func loadUpdateFile(ctx *cli.Context) (*update.Update, string, error) {
 		// Attempt to automatically get the version, based on Ducky's file
 		// naming convention
 		if !ctx.IsSet("version") {
-			ver, err = update.ParseExeVersion(fname)
+			ver, err = one.ParseExeVersion(fname)
 			if err != nil {
 				return nil, "", err
 			}
 		}
 
-		u, err = update.LoadExeUpdate(fname, ver)
+		u, err = one.LoadExeUpdate(fname, ver)
 		if err != nil {
 			return nil, "", err
 		}
 	case ".toml":
-		u, err = update.LoadTOMLUpdate(fname)
+		u, err = one.LoadTOMLUpdate(fname)
 		if err != nil {
 			return nil, "", err
 		}
@@ -111,7 +111,7 @@ func extractKeyAction(ctx *cli.Context) error {
 		return err
 	}
 
-	img := u.Images[update.Internal]
+	img := u.Images[one.Internal]
 	if len(img.Data) == 0 {
 		return errors.New("no data for internal image")
 	}
@@ -272,7 +272,7 @@ func iapTestAction(ctx *cli.Context) error {
 		iapCtx.Reset(false)
 	}()
 
-	img := u.Images[update.Internal]
+	img := u.Images[one.Internal]
 
 	iapCtx.SetExtraCRCData(img.ExtraCRC)
 
@@ -304,7 +304,7 @@ func iapTestAction(ctx *cli.Context) error {
 	return nil
 }
 
-func enterIAP(u *update.Update) (*iap.Context, error) {
+func enterIAP(u *one.Update) (*iap.Context, error) {
 	vid, pid := u.IAPVID, u.IAPPID
 	iapCtx, err := iap.NewContext(vid, pid)
 	if err != nil {
@@ -351,7 +351,7 @@ func updateAction(ctx *cli.Context) error {
 	}
 	defer iapCtx.Reset(false)
 
-	img := u.Images[update.Internal]
+	img := u.Images[one.Internal]
 
 	iapCtx.SetExtraCRCData(img.ExtraCRC)
 
@@ -488,7 +488,7 @@ func dumpAction(ctx *cli.Context) error {
 	}
 	defer iapCtx.Reset(false)
 
-	img := u.Images[update.Internal]
+	img := u.Images[one.Internal]
 
 	iapCtx.SetExtraCRCData(img.ExtraCRC)
 

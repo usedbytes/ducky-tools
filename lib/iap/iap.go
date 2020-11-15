@@ -13,7 +13,7 @@ import (
 	"github.com/google/gousb"
 	"github.com/pkg/errors"
 	"github.com/sigurn/crc16"
-	"github.com/usedbytes/ducky-tools/lib/update"
+	"github.com/usedbytes/ducky-tools/lib/update/one"
 	"github.com/usedbytes/log"
 )
 
@@ -283,13 +283,13 @@ func (c *Context) VerifyData(start uint32, data []byte) error {
 // The correct 'crc' value is derived from data received and a secret string
 // stored in the IAP code. In the case of a firmware update, if the following
 // sequence is followed, then the correct 'crc' value is returned by
-// (*update.Update).GetCRCValue():
+// (*one.Update).GetCRCValue():
 //
 //   - Erase version string
 //   - Erase firmware region
-//   - Write encoded firmware data from (*update.Update).GetFWBlob(...).RawData()
+//   - Write encoded firmware data from (*one.Update).GetFWBlob(...).RawData()
 //     in 52-byte chunks, via WriteData()
-//   - Call CRCCheck() with 'crc' = (*update.Update).GetCRCValue(...)
+//   - Call CRCCheck() with 'crc' = (*one.Update).GetCRCValue(...)
 //
 // As well as performing the CRC check on the written data, CRCCheck() calculates
 // (and returns) the XMODEM CRC of 'length' bytes starting at 'start'. This is
@@ -439,7 +439,7 @@ func (i IAPInfo) IAPVersion() string {
 	if (bcd >> 12) > 0 {
 		t = "IAP"
 	}
-	ver := update.NewIAPVersion(int(bcd>>12)&0xf, int(bcd>>8)&0xf, int(bcd)&0xf)
+	ver := one.NewIAPVersion(int(bcd>>12)&0xf, int(bcd>>8)&0xf, int(bcd)&0xf)
 
 	return fmt.Sprintf("%s %s", t, ver)
 }
@@ -536,9 +536,9 @@ func (c *Context) readVersion(addr uint32) (string, error) {
 	return string(data[:length]), nil
 }
 
-func (c *Context) APGetVersion() (update.FWVersion, error) {
+func (c *Context) APGetVersion() (one.FWVersion, error) {
 	if c.closed {
-		return update.FWVersion{}, closedErr
+		return one.FWVersion{}, closedErr
 	}
 
 	// 0x2800 is hardcoded in the v1.03 updater, but it doesn't seem
@@ -547,40 +547,40 @@ func (c *Context) APGetVersion() (update.FWVersion, error) {
 	data := make([]byte, 64)
 	_, err := c.ReadData(0x2800, data)
 	if err != nil {
-		return update.FWVersion{}, err
+		return one.FWVersion{}, err
 	}
 
 	length := binary.LittleEndian.Uint32(data[:4])
 	if length == 0xffffffff {
-		return update.FWVersion{}, versionErasedErr
+		return one.FWVersion{}, versionErasedErr
 	}
 
 	if length > 0x40 {
-		return update.FWVersion{}, errors.New("version string too long")
+		return one.FWVersion{}, errors.New("version string too long")
 	}
 
-	fwv, err := update.ParseFWVersion(string(data[4 : 4+length]))
+	fwv, err := one.ParseFWVersion(string(data[4 : 4+length]))
 	if err != nil {
-		return update.FWVersion{}, err
+		return one.FWVersion{}, err
 	}
 
 	return fwv, nil
 }
 
-func (c *Context) GetVersion(i IAPInfo) (update.FWVersion, error) {
+func (c *Context) GetVersion(i IAPInfo) (one.FWVersion, error) {
 	if c.closed {
-		return update.FWVersion{}, closedErr
+		return one.FWVersion{}, closedErr
 	}
 
 	addr := i.VersionAddr()
 	str, err := c.readVersion(addr)
 	if err != nil {
-		return update.FWVersion{}, err
+		return one.FWVersion{}, err
 	}
 
-	fwv, err := update.ParseFWVersion(str)
+	fwv, err := one.ParseFWVersion(str)
 	if err != nil {
-		return update.FWVersion{}, err
+		return one.FWVersion{}, err
 	}
 
 	return fwv, nil
@@ -609,7 +609,7 @@ func (c *Context) EraseVersion(i IAPInfo, force bool) error {
 	return nil
 }
 
-func (c *Context) WriteVersion(i IAPInfo, v update.FWVersion) error {
+func (c *Context) WriteVersion(i IAPInfo, v one.FWVersion) error {
 	if c.closed {
 		return closedErr
 	}
