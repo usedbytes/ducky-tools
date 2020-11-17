@@ -156,19 +156,19 @@ var iapRE *regexp.Regexp = regexp.MustCompile("V([0-9]+)\\.([0-9]+)\\.([0-9]+)")
 func ParseIAPVersion(str string) (IAPVersion, error) {
 	matches := iapRE.FindStringSubmatch(str)
 	if len(matches) != 4 {
-		return IAPVersion{}, fmt.Errorf("Can't parse: '%s'", str)
+		return IAPVersion{}, fmt.Errorf("Can't parse: '%s'. Not 4 matches", str)
 	}
 	a, err := strconv.Atoi(matches[1])
 	if err != nil {
-		return IAPVersion{}, fmt.Errorf("Can't parse: '%s'", str)
+		return IAPVersion{}, fmt.Errorf("Can't parse: '%s' (a)", str)
 	}
 	b, err := strconv.Atoi(matches[2])
 	if err != nil {
-		return IAPVersion{}, fmt.Errorf("Can't parse: '%s'", str)
+		return IAPVersion{}, fmt.Errorf("Can't parse: '%s' (b)", str)
 	}
 	c, err := strconv.Atoi(matches[3])
 	if err != nil {
-		return IAPVersion{}, fmt.Errorf("Can't parse: '%s'", str)
+		return IAPVersion{}, fmt.Errorf("Can't parse: '%s' (c)", str)
 	}
 
 	return NewIAPVersion(a, b, c), nil

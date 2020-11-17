@@ -19,14 +19,17 @@ type Exe struct {
 	IAPVersion   *IAPVersion `toml:"iap_version,omitempty"`
 	FileKey      uint32      `toml:"file_key,omitempty"`
 	ExtraCRCFile string      `toml:"extra_crc_data_file,omitempty"`
+	ExtraCRC     []byte      `toml:"-"`
 	ByteSwapping bool        `toml:"byte_swapping"`
 }
 
-func (e Exe) String() string {
+func (e *Exe) String() string {
 	var s string
 	s += "Exe:\n"
 	s += stringIfNotEmpty("   Name:", e.Name)
-	s += stringIfNotEmpty("   IAPVersion:", e.IAPVersion.String())
+	if e.IAPVersion != nil {
+		s += stringIfNotEmpty("   IAPVersion:", e.IAPVersion.String())
+	}
 	if e.FileKey != 0 {
 		s += fmt.Sprintf("   FileKey: 0x%08x\n", e.FileKey)
 	}
@@ -41,7 +44,7 @@ type Device struct {
 	Bootloader  *Application `toml:"bootloader,omitempty"`
 }
 
-func (d Device) String() string {
+func (d *Device) String() string {
 	var s string
 	s += "Device:\n"
 	s += stringIfNotEmpty("   Name:", d.Name)
@@ -57,14 +60,16 @@ type Application struct {
 }
 
 type Firmware struct {
+	DeviceName string        `toml:"device_name,omitempty"`
 	Name    string           `toml:"name,omitempty"`
 	Version *FWVersion       `toml:"version"`
-	Images  map[string]Image `toml:"images,omitempty"`
+	Images  map[string]*Image `toml:"images,omitempty"`
 }
 
-func (f Firmware) String() string {
+func (f *Firmware) String() string {
 	var s string
 	s += "Firmware:\n"
+	s += stringIfNotEmpty("   DeviceName:", f.DeviceName)
 	s += stringIfNotEmpty("   Name:", f.Name)
 	s += stringIfNotEmpty("   Version:", f.Version.String())
 	return s
@@ -73,10 +78,11 @@ func (f Firmware) String() string {
 type Image struct {
 	CheckCRC uint16 `toml:"check_crc,omitempty"`
 	DataFile string `toml:"data_file,omitempty"`
+	Data []byte     `toml:"-"`
 }
 
 type Config struct {
 	Exe       *Exe       `toml:"exe,omitempty"`
-	Devices   []Device   `toml:"device,omitempty"`
-	Firmwares []Firmware `toml:"firmware,omitempty"`
+	Devices   []*Device   `toml:"device,omitempty"`
+	Firmwares []*Firmware `toml:"firmware,omitempty"`
 }
