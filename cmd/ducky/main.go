@@ -15,7 +15,7 @@ import (
 	"github.com/urfave/cli/v2"
 	"github.com/usedbytes/ducky-tools/lib/iap"
 	"github.com/usedbytes/ducky-tools/lib/iap2"
-	"github.com/usedbytes/ducky-tools/lib/update/one"
+	"github.com/usedbytes/ducky-tools/lib/exe/one"
 	"github.com/usedbytes/ducky-tools/lib/exe"
 	"github.com/usedbytes/log"
 
