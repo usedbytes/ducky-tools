@@ -1,12 +1,81 @@
 package config
 
 import (
+	"fmt"
+	"hash/crc32"
 	"io/ioutil"
 	"os"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 	"github.com/pkg/errors"
 )
+
+func replaceFilenameChars(in string) string {
+	return strings.Map(func(r rune) rune {
+		if r == ' ' {
+			return '_'
+		}
+
+		if strings.ContainsRune("\t\n\f\r%<>/'\"\\`:{}()$+*?|@!", r) {
+			return -1
+		}
+
+		return r
+	}, in)
+}
+
+func (fw *Firmware) GenerateFilenames() {
+	var parts []string
+
+	parts = append(parts, "image")
+
+	if len(fw.DeviceName) != 0 {
+		parts = append(parts, fw.DeviceName)
+	}
+	if len(fw.Name) != 0 {
+		parts = append(parts, fw.Name)
+	}
+	if fw.Version != nil {
+		parts = append(parts, fw.Version.String())
+	}
+
+	base := strings.Join(parts, "_")
+	for k, v := range fw.Images {
+		if len(v.Data) == 0 {
+			continue
+		}
+
+		hash := crc32.Checksum(v.Data, crc32.IEEETable)
+
+		fname := fmt.Sprintf("%s.%08x.%s.bin", base, hash, k)
+
+		v.DataFile = replaceFilenameChars(fname)
+	}
+}
+
+func (exe *Exe) GenerateFilenames() {
+	if len(exe.ExtraCRC) == 0 {
+		return
+	}
+
+	var parts []string
+
+	parts = append(parts, "extracrc")
+
+	if len(exe.Name) != 0 {
+		parts = append(parts, exe.Name)
+	}
+	if exe.IAPVersion != nil {
+		parts = append(parts, exe.IAPVersion.String())
+	}
+
+	base := strings.Join(parts, "_")
+
+	hash := crc32.Checksum(exe.ExtraCRC, crc32.IEEETable)
+	fname := fmt.Sprintf("%s.%08x.%s.bin", base, hash)
+	exe.ExtraCRCFile = replaceFilenameChars(fname)
+}
 
 func (exe *Exe) LoadData() error {
 	if len(exe.ExtraCRCFile) != 0 {
