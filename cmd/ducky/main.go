@@ -16,10 +16,39 @@ import (
 	"github.com/usedbytes/ducky-tools/lib/iap"
 	"github.com/usedbytes/ducky-tools/lib/iap2"
 	"github.com/usedbytes/ducky-tools/lib/update/one"
+	"github.com/usedbytes/ducky-tools/lib/exe"
 	"github.com/usedbytes/log"
 
 	"github.com/sigurn/crc16"
 )
+
+func extract2Action(ctx *cli.Context) error {
+	if ctx.Args().Len() != 1 {
+		return fmt.Errorf("INPUT_FILE is required")
+	}
+	fname := ctx.Args().First()
+
+	cfg, err := exe.Load(fname)
+	if err != nil {
+		return err
+	}
+
+	if ctx.IsSet("out") {
+		fname = ctx.String("out")
+	} else {
+		fname = filepath.Base(fname)
+		if filepath.Ext(fname) != ".toml" {
+			fname = fname + ".toml"
+		}
+	}
+
+	err = cfg.Write(fname)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
 
 func loadUpdateFile(ctx *cli.Context) (*one.Update, string, error) {
 	if ctx.Args().Len() != 1 {
@@ -665,6 +694,19 @@ func main() {
 	}
 
 	app.Commands = []*cli.Command{
+		{
+			Name:      "extract2",
+			ArgsUsage: "INPUT_FILE",
+			Action:    extract2Action,
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:     "out",
+					Aliases:  []string{"o"},
+					Usage:    "Output filename (.toml)",
+					Required: false,
+				},
+			},
+		},
 		{
 			Name:      "extract",
 			ArgsUsage: "INPUT_FILE",
