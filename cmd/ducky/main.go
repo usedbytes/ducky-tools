@@ -72,7 +72,7 @@ func loadUpdateFile(ctx *cli.Context) (*one.Update, string, error) {
 			}
 		}
 
-		u, err = one.LoadExeUpdate(fname, ver)
+		u, err = one.LoadExeUpdateVersion(fname, ver)
 		if err != nil {
 			return nil, "", err
 		}

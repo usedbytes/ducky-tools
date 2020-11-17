@@ -181,7 +181,22 @@ func ParseExeVersion(fname string) (string, error) {
 	return ver, nil
 }
 
-func LoadExeUpdate(file string, ver string) (*Update, error) {
+func Load(file string) (*config.Config, error) {
+	for k, v := range exeVersions {
+		log.Verboseln("Attempt load as version", k)
+
+		u, err := LoadExeUpdateVersion(file, k)
+		if err == nil {
+			return u.ToConfig(), nil
+		} else {
+			log.Verboseln("Failed loading as version", v, err)
+		}
+	}
+
+	return nil, errors.New("couldn't load using any known versions")
+}
+
+func LoadExeUpdateVersion(file string, ver string) (*Update, error) {
 	v := exeVersions[ver]
 	if v == nil {
 		return nil, errors.Errorf("unrecognised exe version '%s'", ver)
