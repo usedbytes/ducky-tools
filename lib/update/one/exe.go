@@ -13,10 +13,11 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/usedbytes/log"
+	"github.com/usedbytes/ducky-tools/lib/config"
 )
 
 type exeVersion struct {
-	version       FWVersion
+	version       config.FWVersion
 	headerLen     int
 	chunkLen      int
 	globalCrcData bool
@@ -24,21 +25,13 @@ type exeVersion struct {
 
 var exeVersions map[string]*exeVersion = map[string]*exeVersion{
 	"1.01": &exeVersion{
-		version: FWVersion{
-			hwv:      HWVersionUnknown,
-			major:    1,
-			minor100: 1,
-		},
+		version: config.NewFWVersion(config.HWVersionUnknown, 1, 1),
 		headerLen:     0x23c,
 		chunkLen:      0x54,
 		globalCrcData: false,
 	},
 	"1.03r": &exeVersion{
-		version: FWVersion{
-			hwv:      HWVersionUnknown,
-			major:    1,
-			minor100: 3,
-		},
+		version: config.NewFWVersion(config.HWVersionUnknown, 1, 3),
 		headerLen:     0x288,
 		chunkLen:      0x10,
 		globalCrcData: true,

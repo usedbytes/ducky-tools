@@ -7,18 +7,69 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sigurn/crc16"
+
+	"github.com/usedbytes/ducky-tools/lib/config"
 )
 
 type Update struct {
 	Name       string
-	Version    FWVersion
-	IAPVersion IAPVersion
+	Version    config.FWVersion
+	IAPVersion config.IAPVersion
 	FileKey    uint32
 
 	APVID, APPID   uint16
 	IAPVID, IAPPID uint16
 
 	Images map[ImageNumber]*Image
+}
+
+func (u *Update) ToConfig() *config.Config {
+	cfg := &config.Config{
+		Exe: &config.Exe {
+			Name: u.Name,
+			IAPVersion: &u.IAPVersion,
+			FileKey: u.FileKey,
+		},
+		Devices: []*config.Device{
+			&config.Device{
+				Name: u.Name,
+				Application: &config.Application{
+					VID: u.APVID,
+					PID: u.APPID,
+					Protocol: config.One,
+				},
+				Bootloader: &config.Application{
+					VID: u.IAPVID,
+					PID: u.IAPPID,
+					Protocol: config.One,
+				},
+			},
+		},
+		Firmwares: []*config.Firmware{
+			&config.Firmware{
+				DeviceName: u.Name,
+				Version: &u.Version,
+				Images: make(map[string]*config.Image),
+			},
+		},
+	}
+
+	for k, v := range u.Images {
+		name := k.String()
+		cfg.Firmwares[0].Images[name] = &config.Image{
+			CheckCRC: v.CheckCRC,
+			Data: v.Data,
+		}
+
+		// XXX: What if the ExtraCRCs are different for different
+		// images? The file structure allows it, even if the bootloader
+		// doesn't
+		if v.ExtraCRC != nil {
+			cfg.Exe.ExtraCRC = v.ExtraCRC
+		}
+	}
+
+	return cfg
 }
 
 func (u *Update) String() string {
@@ -43,7 +94,7 @@ func (u *Update) String() string {
 }
 
 func (u *Update) Validate() error {
-	if u.IAPVersion != IAPVersion100 {
+	if u.IAPVersion != config.IAPVersion100 {
 		return errors.Errorf("unsupported IAP Version '%s'", u.IAPVersion)
 	}
 

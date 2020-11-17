@@ -10,6 +10,7 @@ import (
 	"unicode/utf16"
 
 	"github.com/pkg/errors"
+	"github.com/usedbytes/ducky-tools/lib/config"
 )
 
 type fileHeader struct {
@@ -17,8 +18,8 @@ type fileHeader struct {
 	apVID, apPID   uint16
 	iapVID, iapPID uint16
 	wchars         bool
-	fwVersion      FWVersion
-	iapVersion     IAPVersion
+	fwVersion      config.FWVersion
+	iapVersion     config.IAPVersion
 	name           string
 	layout         string
 
@@ -55,7 +56,7 @@ func readString(b []byte, maxLen int, wide bool) string {
 func (fh *fileHeader) decodeFirmwareVersion() error {
 	str := readString(fh.rawData[0x28:], 128, fh.wchars)
 
-	fwv, err := ParseFWVersion(str)
+	fwv, err := config.ParseFWVersion(str)
 	if err != nil {
 		return err
 	}
@@ -73,7 +74,7 @@ func (fh *fileHeader) decodeIAPVersion() error {
 	}
 	str = strings.TrimPrefix(str, prefix)
 
-	v, err := ParseIAPVersion(str)
+	v, err := config.ParseIAPVersion(str)
 	fh.iapVersion = v
 
 	return err
@@ -168,7 +169,7 @@ func newFileHeader(rawData []byte) (*fileHeader, error) {
 		return nil, errors.Wrap(err, "Decoding IAP version")
 	}
 
-	if !hdr.iapVersion.Matches(IAPVersion{1, 0, 0}) {
+	if !hdr.iapVersion.Matches(config.NewIAPVersion(1, 0, 0)) {
 		return nil, fmt.Errorf("Unsupported IAP version: %s", hdr.iapVersion)
 	}
 

@@ -55,6 +55,14 @@ type FWVersion struct {
 	major, minor100 int
 }
 
+func NewFWVersion(hwv HWVersion, major, minor100 int) FWVersion {
+	return FWVersion{
+		hwv: hwv,
+		major: major,
+		minor100: minor100,
+	}
+}
+
 func (fwv *FWVersion) UnmarshalText(text []byte) error {
 	parsed, err := ParseFWVersion(string(text))
 	(*fwv) = parsed

@@ -13,7 +13,7 @@ import (
 	"github.com/google/gousb"
 	"github.com/pkg/errors"
 	"github.com/sigurn/crc16"
-	"github.com/usedbytes/ducky-tools/lib/update/one"
+	"github.com/usedbytes/ducky-tools/lib/config"
 	"github.com/usedbytes/log"
 )
 
@@ -439,7 +439,7 @@ func (i IAPInfo) IAPVersion() string {
 	if (bcd >> 12) > 0 {
 		t = "IAP"
 	}
-	ver := one.NewIAPVersion(int(bcd>>12)&0xf, int(bcd>>8)&0xf, int(bcd)&0xf)
+	ver := config.NewIAPVersion(int(bcd>>12)&0xf, int(bcd>>8)&0xf, int(bcd)&0xf)
 
 	return fmt.Sprintf("%s %s", t, ver)
 }
@@ -536,9 +536,9 @@ func (c *Context) readVersion(addr uint32) (string, error) {
 	return string(data[:length]), nil
 }
 
-func (c *Context) APGetVersion() (one.FWVersion, error) {
+func (c *Context) APGetVersion() (config.FWVersion, error) {
 	if c.closed {
-		return one.FWVersion{}, closedErr
+		return config.FWVersion{}, closedErr
 	}
 
 	// 0x2800 is hardcoded in the v1.03 updater, but it doesn't seem
@@ -547,40 +547,40 @@ func (c *Context) APGetVersion() (one.FWVersion, error) {
 	data := make([]byte, 64)
 	_, err := c.ReadData(0x2800, data)
 	if err != nil {
-		return one.FWVersion{}, err
+		return config.FWVersion{}, err
 	}
 
 	length := binary.LittleEndian.Uint32(data[:4])
 	if length == 0xffffffff {
-		return one.FWVersion{}, versionErasedErr
+		return config.FWVersion{}, versionErasedErr
 	}
 
 	if length > 0x40 {
-		return one.FWVersion{}, errors.New("version string too long")
+		return config.FWVersion{}, errors.New("version string too long")
 	}
 
-	fwv, err := one.ParseFWVersion(string(data[4 : 4+length]))
+	fwv, err := config.ParseFWVersion(string(data[4 : 4+length]))
 	if err != nil {
-		return one.FWVersion{}, err
+		return config.FWVersion{}, err
 	}
 
 	return fwv, nil
 }
 
-func (c *Context) GetVersion(i IAPInfo) (one.FWVersion, error) {
+func (c *Context) GetVersion(i IAPInfo) (config.FWVersion, error) {
 	if c.closed {
-		return one.FWVersion{}, closedErr
+		return config.FWVersion{}, closedErr
 	}
 
 	addr := i.VersionAddr()
 	str, err := c.readVersion(addr)
 	if err != nil {
-		return one.FWVersion{}, err
+		return config.FWVersion{}, err
 	}
 
-	fwv, err := one.ParseFWVersion(str)
+	fwv, err := config.ParseFWVersion(str)
 	if err != nil {
-		return one.FWVersion{}, err
+		return config.FWVersion{}, err
 	}
 
 	return fwv, nil
@@ -609,7 +609,7 @@ func (c *Context) EraseVersion(i IAPInfo, force bool) error {
 	return nil
 }
 
-func (c *Context) WriteVersion(i IAPInfo, v one.FWVersion) error {
+func (c *Context) WriteVersion(i IAPInfo, v config.FWVersion) error {
 	if c.closed {
 		return closedErr
 	}

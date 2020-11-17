@@ -12,6 +12,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/pkg/errors"
+	"github.com/usedbytes/ducky-tools/lib/config"
 )
 
 type tomlBlob struct {
@@ -49,12 +50,12 @@ func LoadTOMLUpdate(file string) (*Update, error) {
 	if len(tu.VerStr) == 0 {
 		return nil, errors.New("version string is required")
 	}
-	u.Version, err = ParseFWVersion(tu.VerStr)
+	u.Version, err = config.ParseFWVersion(tu.VerStr)
 	if err != nil {
 		return nil, err
 	}
 
-	u.IAPVersion, err = ParseIAPVersion(tu.IAPVerStr)
+	u.IAPVersion, err = config.ParseIAPVersion(tu.IAPVerStr)
 	if err != nil {
 		return nil, err
 	}
