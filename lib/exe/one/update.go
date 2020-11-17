@@ -69,6 +69,9 @@ func (u *Update) ToConfig() *config.Config {
 		}
 	}
 
+	cfg.Firmwares[0].GenerateFilenames()
+	cfg.Exe.GenerateFilenames()
+
 	return cfg
 }
 
