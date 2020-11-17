@@ -72,6 +72,16 @@ func (f *Firmware) String() string {
 	s += stringIfNotEmpty("   DeviceName:", f.DeviceName)
 	s += stringIfNotEmpty("   Name:", f.Name)
 	s += stringIfNotEmpty("   Version:", f.Version.String())
+	for k, v := range f.Images {
+		s += fmt.Sprintf("   Image %s:\n", k)
+		if v.CheckCRC != 0 {
+			s += fmt.Sprintf("      CheckCRC: 0x%04x\n", v.CheckCRC)
+		}
+		s += stringIfNotEmpty("      DataFile:", v.DataFile)
+		if len(v.Data) != 0 {
+			s += fmt.Sprintf("      Size: %d (0x%x) bytes\n", len(v.Data), len(v.Data))
+		}
+	}
 	return s
 }
 
