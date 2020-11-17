@@ -31,15 +31,15 @@ name = "Ducky RGB 100%"
 	pid = 0x1356
 	protocol = "one2"
 
-[[firmware]]
-	name = "EU Layout"
-	version = "V1.0.5"
-	[firmware.images.internal]
-	data_file = "internal.bin"
-	check_crc = 0x1234
-	[firmware.images.meta]
-	data_file = "metadata.bin"
-	check_crc = 0x1234
+	[[device.firmware]]
+		name = "EU Layout"
+		version = "V1.0.5"
+		[firmware.images.internal]
+		data_file = "internal.bin"
+		check_crc = 0x1234
+		[firmware.images.meta]
+		data_file = "metadata.bin"
+		check_crc = 0x1234
 `
 
 	var cfg Config

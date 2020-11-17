@@ -43,20 +43,20 @@ func (u *Update) ToConfig() *config.Config {
 					PID: u.IAPPID,
 					Protocol: config.One,
 				},
-			},
-		},
-		Firmwares: []*config.Firmware{
-			&config.Firmware{
-				DeviceName: u.Name,
-				Version: &u.Version,
-				Images: make(map[string]*config.Image),
+				Firmwares: []*config.Firmware{
+					&config.Firmware{
+						DeviceName: u.Name,
+						Version: &u.Version,
+						Images: make(map[string]*config.Image),
+					},
+				},
 			},
 		},
 	}
 
 	for k, v := range u.Images {
 		name := k.String()
-		cfg.Firmwares[0].Images[name] = &config.Image{
+		cfg.Devices[0].Firmwares[0].Images[name] = &config.Image{
 			CheckCRC: v.CheckCRC,
 			Data: v.Data,
 		}
@@ -69,7 +69,7 @@ func (u *Update) ToConfig() *config.Config {
 		}
 	}
 
-	cfg.Firmwares[0].GenerateFilenames()
+	cfg.Devices[0].Firmwares[0].GenerateFilenames()
 	cfg.Exe.GenerateFilenames()
 
 	return cfg

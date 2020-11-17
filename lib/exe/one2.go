@@ -255,8 +255,6 @@ func loadFWUpdateExe(file string) (*config.Config, error) {
 			return nil, err
 		}
 
-		cfg.Devices = append(cfg.Devices, cfgDev)
-
 		for _, l := range d.layouts {
 			fw := &config.Firmware{
 				Version: &fwv,
@@ -279,8 +277,9 @@ func loadFWUpdateExe(file string) (*config.Config, error) {
 
 			fw.GenerateFilenames()
 
-			cfg.Firmwares = append(cfg.Firmwares, fw)
+			cfgDev.Firmwares = append(cfgDev.Firmwares, fw)
 		}
+		cfg.Devices = append(cfg.Devices, cfgDev)
 	}
 
 	fmt.Println(cfg)

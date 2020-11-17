@@ -42,6 +42,7 @@ type Device struct {
 	Name        string       `toml:"name,omitempty"`
 	Application *Application `toml:"application,omitempty"`
 	Bootloader  *Application `toml:"bootloader,omitempty"`
+	Firmwares []*Firmware    `toml:"firmware,omitempty"`
 }
 
 func (d *Device) String() string {
@@ -50,6 +51,10 @@ func (d *Device) String() string {
 	s += stringIfNotEmpty("   Name:", d.Name)
 	s += fmt.Sprintf("   AP VID:PID: 0x%04x:0x%04x\n", d.Application.VID, d.Application.PID)
 	s += fmt.Sprintf("   IAP VID:PID: 0x%04x:0x%04x\n", d.Bootloader.VID, d.Bootloader.PID)
+	// TODO: Indentation for Firmwares.
+	for _, fw := range d.Firmwares {
+		s += fw.String()
+	}
 	return s
 }
 
@@ -94,5 +99,4 @@ type Image struct {
 type Config struct {
 	Exe       *Exe       `toml:"exe,omitempty"`
 	Devices   []*Device   `toml:"device,omitempty"`
-	Firmwares []*Firmware `toml:"firmware,omitempty"`
 }

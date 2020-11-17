@@ -179,11 +179,13 @@ func (c *Config) LoadData() error {
 		}
 	}
 
-	for _, fw := range c.Firmwares {
-		for _, img := range fw.Images {
-			err := img.LoadData()
-			if err != nil {
-				return err
+	for _, dev := range c.Devices {
+		for _, fw := range dev.Firmwares {
+			for _, img := range fw.Images {
+				err := img.LoadData()
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -199,11 +201,13 @@ func (c *Config) WriteData() error {
 		}
 	}
 
-	for _, fw := range c.Firmwares {
-		for _, img := range fw.Images {
-			err := img.WriteData()
-			if err != nil {
-				return err
+	for _, dev := range c.Devices {
+		for _, fw := range dev.Firmwares {
+			for _, img := range fw.Images {
+				err := img.WriteData()
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}
