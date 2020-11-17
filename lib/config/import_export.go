@@ -73,7 +73,7 @@ func (exe *Exe) GenerateFilenames() {
 	base := strings.Join(parts, "_")
 
 	hash := crc32.Checksum(exe.ExtraCRC, crc32.IEEETable)
-	fname := fmt.Sprintf("%s.%08x.%s.bin", base, hash)
+	fname := fmt.Sprintf("%s.%08x.bin", base, hash)
 	exe.ExtraCRCFile = replaceFilenameChars(fname)
 }
 
