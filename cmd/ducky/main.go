@@ -3,12 +3,9 @@
 package main
 
 import (
-	"encoding/hex"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
-	"sort"
 	"time"
 
 	"github.com/pkg/errors"
@@ -158,122 +155,6 @@ func decodeAction(ctx *cli.Context) error {
 	}
 
 	log.Println("Wrote to", fname)
-
-	return nil
-}
-
-func extractKeyAction(ctx *cli.Context) error {
-	cfg, err := loadUpdateFile(ctx)
-	if err != nil {
-		return err
-	}
-
-	if len(cfg.Devices) != 1 || len(cfg.Devices[0].Firmwares) != 1 {
-		// XXX: This is temporary, this command will go away entirely.
-		return errors.New("extractkey requires a single device with a single firmware")
-	}
-
-	img, ok := cfg.Devices[0].Firmwares[0].Images[string(config.Internal)]
-	if !ok || len(img.Data) == 0 {
-		return errors.New("no data for internal image")
-	}
-
-	counts := [52][256]int{}
-
-	// Count occurrence
-	for i := 0; i < len(img.Data); i += 52 {
-		for j := 0; j < 52 && i+j < len(img.Data); j++ {
-			val := img.Data[i+j]
-			counts[j][val] = counts[j][val] + 1
-		}
-	}
-
-	// Find max occurrence
-	maxVals := [52]byte{}
-	for i, val := range counts {
-		maxVal := 0
-		maxIdx := 0
-		for j, v := range val {
-			if v > maxVal {
-				maxVal = v
-				maxIdx = j
-			}
-		}
-		maxVals[i] = byte(maxIdx)
-	}
-
-	// Expect the last couple of chunks to be zeroes (not guaranteed)
-	idx := ((len(img.Data) / 52) - 1) * 52
-	a := img.Data[idx:idx+52]
-	b := img.Data[idx+52:]
-	key := [52]byte{}
-	fixedUp := false
-
-	for i := 0; i < 52; i++ {
-		// TODO: This could be smarter.
-		if maxVals[i] != a[i] {
-			fixedUp = true
-			log.Verbosef("maxVal[%d] (%d) != a[%d] (%d) %d\n", i, maxVals[i], i, a[i], len(b))
-			if i < len(b) {
-				if a[i] == b[i] {
-					key[i] = a[i]
-					log.Verbosef("Using a[%d] (%d)\n", i, a[i])
-				} else if maxVals[i] == b[i] {
-					log.Verbosef("Keeping maxVals[%d] (%d), matches b[%d]\n", i, maxVals[i], i)
-					key[i] = maxVals[i]
-				} else {
-					log.Verbosef("Keeping maxVals[%d] (%d), all different: %d %d %d\n",
-							i, maxVals[i], maxVals[i], a[i], b[i])
-					key[i] = maxVals[i]
-				}
-			} else {
-				countA := counts[i][a[i]]
-
-				// Sorting destroys the indexing, so need to make a copy
-				sorted := append([]int(nil), counts[i][:]...)
-				sort.Ints(sorted)
-				idx := sort.SearchInts(sorted, countA)
-				if idx > 250 {
-					log.Verbosef("Using a[%d] (%d), sorted at position %d\n", i, a[i], 256 - idx)
-					key[i] = a[i]
-				} else {
-					log.Verbosef("Keeping maxVals[%d] (%d), a[%d] sorted at position %d\n",
-							i, maxVals[i], i, a[i], 256 - idx)
-					key[i] = maxVals[i]
-				}
-			}
-		} else {
-			key[i] = maxVals[i]
-		}
-	}
-
-	if fixedUp {
-		log.Println("WARNING: Some values were ambiguous")
-	}
-
-	fmt.Println(hex.Dump(key[:]))
-
-	/* No such thing as CheckCRC for One2 images
-	crc, err := img.CalculateCheckCRC()
-	if err != nil {
-		return err
-	}
-	log.Verbosef("Calculated CheckCRC: 0x%04x\n", crc)
-
-	if img.CheckCRC == crc {
-		log.Println("CRC Check confirmed! Key is correct.")
-	} else {
-		log.Println("CRC Check failed! Key may be incorrect.")
-	}
-	*/
-
-	if ctx.IsSet("out") {
-		err := ioutil.WriteFile(ctx.String("out"), key[:], 0644)
-		if err != nil {
-			return err
-		}
-		log.Println("Wrote to", ctx.String("out"))
-	}
 
 	return nil
 }
@@ -790,27 +671,6 @@ func main() {
 					Name:     "out",
 					Aliases:  []string{"o"},
 					Usage:    "Output filename (.toml)",
-					Required: false,
-				},
-			},
-		},
-		{
-			Name:      "extractkey",
-			ArgsUsage: "INPUT_FILE",
-			Usage:     "Attempt to extract the xfer key via some heuristic analysis",
-			Action:    extractKeyAction,
-			Flags: []cli.Flag{
-				&cli.StringFlag{
-					Name:     "version",
-					Aliases:  []string{"V"},
-					Usage:    "Specify the updater version if it can't be found automatically",
-					Required: false,
-					Value:    "1.03r",
-				},
-				&cli.StringFlag{
-					Name:     "out",
-					Aliases:  []string{"o"},
-					Usage:    "Output filename (.bin)",
 					Required: false,
 				},
 			},
