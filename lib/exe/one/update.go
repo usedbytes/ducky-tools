@@ -59,6 +59,8 @@ func (u *Update) ToConfig() *config.Config {
 		cfg.Devices[0].Firmwares[0].Images[name] = &config.Image{
 			CheckCRC: v.CheckCRC,
 			Data: v.Data,
+			// Image is always XferEncoded in the 'one' code
+			XferEncoded: true,
 		}
 
 		// XXX: What if the ExtraCRCs are different for different

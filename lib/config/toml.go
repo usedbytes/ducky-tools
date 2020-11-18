@@ -42,7 +42,7 @@ type Device struct {
 	Name        string       `toml:"name,omitempty"`
 	Application *Application `toml:"application,omitempty"`
 	Bootloader  *Application `toml:"bootloader,omitempty"`
-	Firmwares []*Firmware    `toml:"firmware,omitempty"`
+	Firmwares   []*Firmware  `toml:"firmware,omitempty"`
 }
 
 func (d *Device) String() string {
@@ -65,10 +65,10 @@ type Application struct {
 }
 
 type Firmware struct {
-	DeviceName string        `toml:"device_name,omitempty"`
-	Name    string           `toml:"name,omitempty"`
-	Version *FWVersion       `toml:"version"`
-	Images  map[string]*Image `toml:"images,omitempty"`
+	DeviceName string            `toml:"device_name,omitempty"`
+	Name       string            `toml:"name,omitempty"`
+	Version    *FWVersion        `toml:"version"`
+	Images     map[string]*Image `toml:"images,omitempty"`
 }
 
 func (f *Firmware) String() string {
@@ -86,17 +86,19 @@ func (f *Firmware) String() string {
 		if len(v.Data) != 0 {
 			s += fmt.Sprintf("      Size: %d (0x%x) bytes\n", len(v.Data), len(v.Data))
 		}
+		s += fmt.Sprintf("      XferEncoded: %s\n", strconv.FormatBool(v.XferEncoded))
 	}
 	return s
 }
 
 type Image struct {
-	CheckCRC uint16 `toml:"check_crc,omitempty"`
-	DataFile string `toml:"data_file,omitempty"`
-	Data []byte     `toml:"-"`
+	CheckCRC    uint16 `toml:"check_crc,omitempty"`
+	DataFile    string `toml:"data_file,omitempty"`
+	XferEncoded bool   `toml:"xfer_encoded"`
+	Data        []byte `toml:"-"`
 }
 
 type Config struct {
-	Exe       *Exe       `toml:"exe,omitempty"`
-	Devices   []*Device   `toml:"device,omitempty"`
+	Exe     *Exe      `toml:"exe,omitempty"`
+	Devices []*Device `toml:"device,omitempty"`
 }

@@ -270,9 +270,11 @@ func loadFWUpdateExe(file string) (*config.Config, error) {
 
 			fw.Images[string(config.Metadata)] = &config.Image{
 				Data: l.meta,
+				XferEncoded: false,
 			}
 			fw.Images[string(config.Internal)] = &config.Image{
 				Data: l.data,
+				XferEncoded: true,
 			}
 
 			fw.GenerateFilenames()
