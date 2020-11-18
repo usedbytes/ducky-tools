@@ -290,7 +290,7 @@ func (c *Config) Write(filename string) error {
 }
 
 func LoadConfig(filename string) (*Config, error) {
-	var cfg *Config
+	var cfg = &Config{}
 	_, err := toml.DecodeFile(filename, cfg)
 	if err != nil {
 		return nil, err
