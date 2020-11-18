@@ -9,6 +9,7 @@ import (
 	"github.com/sigurn/crc16"
 
 	"github.com/usedbytes/ducky-tools/lib/config"
+	"github.com/usedbytes/ducky-tools/lib/xor"
 )
 
 type Update struct {
@@ -149,7 +150,7 @@ func (i *Image) CalculateCheckCRC() (uint16, error) {
 	}
 
 	// Image is always in wire encoding
-	data := XORDecode(i.Data, i.XferKey, false)
+	data := xor.Decode(i.Data, i.XferKey, false)
 
 	// secret is hard-coded in the IAP code
 	secret := []byte{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF}

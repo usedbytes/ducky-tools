@@ -10,6 +10,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/pkg/errors"
 	"github.com/usedbytes/ducky-tools/lib/config"
+	"github.com/usedbytes/ducky-tools/lib/xor"
 )
 
 type tomlBlob struct {
@@ -103,7 +104,7 @@ func LoadTOMLUpdate(file string) (*Update, error) {
 		if v.FileEncoded {
 			key := [4]byte{}
 			binary.LittleEndian.PutUint32(key[:], tu.FileKey)
-			i.Data = XORDecode(i.Data, key[:], true)
+			i.Data = xor.Decode(i.Data, key[:], true)
 		}
 
 		if len(v.XferKeyFile) != 0 {
@@ -129,7 +130,7 @@ func LoadTOMLUpdate(file string) (*Update, error) {
 			}
 
 			// Image always stores data in "wire format"
-			i.Data = XORDecode(i.Data, i.XferKey, false)
+			i.Data = xor.Decode(i.Data, i.XferKey, false)
 		}
 
 		if len(v.ExtraCRCFile) != 0 {

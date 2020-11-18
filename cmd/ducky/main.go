@@ -564,7 +564,7 @@ func dumpAction(ctx *cli.Context) error {
 	// The CRC we send has to match the expected value, which is updated in
 	// two ways:
 	// 1) On each invocation of WriteData(..., data):
-	//     crc = crc16.Update(crc, XORDecode(data), crc16.MakeTable(crc16.CRC16_XMODEM))
+	//     crc = crc16.Update(crc, xor.Decode(data), crc16.MakeTable(crc16.CRC16_XMODEM))
 	// 2) On each invocation of CRCCheck():
 	//     crc = crc16.Update(crc, secret, crc16.MakeTable(crc16.CRC16_XMODEM))
 	// We're running on a clean reset and never call WriteData(), so we just

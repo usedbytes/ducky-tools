@@ -14,6 +14,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/usedbytes/log"
 	"github.com/usedbytes/ducky-tools/lib/config"
+	"github.com/usedbytes/ducky-tools/lib/xor"
 )
 
 type exeVersion struct {
@@ -118,7 +119,7 @@ func (u *exeUpdate) loadImage(f io.ReadSeeker, num ImageNumber) error {
 		return errors.Wrap(err, "Reading image blob")
 	}
 
-	data := XORDecode(rawData, u.fileHdr.fileKey[:], true)
+	data := xor.Decode(rawData, u.fileHdr.fileKey[:], true)
 
 	switch num {
 	case Internal, External:
