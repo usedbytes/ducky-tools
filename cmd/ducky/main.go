@@ -42,14 +42,14 @@ func loadUpdateFile(ctx *cli.Context) (*config.Config, error) {
 	case ".toml":
 		cfg, err = config.LoadConfig(fname)
 		if err != nil {
+			_, err2 := one.LoadTOMLUpdate(fname)
+			if err2 == nil {
+				return nil, errors.New("old-style toml files are no longer supported." +
+						"Please use 'extract' to convert it to the new config format.")
+			}
+
 			return nil, err
 		}
-	case ".old":
-		u, err := one.LoadTOMLUpdate(fname)
-		if err != nil {
-			return nil, err
-		}
-		cfg = u.ToConfig()
 	default:
 		return nil, errors.New("unrecognised file extension")
 	}
@@ -75,6 +75,12 @@ func extractAction(ctx *cli.Context) error {
 		if err != nil {
 			return err
 		}
+	case ".old":
+		u, err := one.LoadTOMLUpdate(fname)
+		if err != nil {
+			return err
+		}
+		cfg = u.ToConfig()
 	default:
 		return fmt.Errorf("expected a .exe, got %s", ext)
 	}
