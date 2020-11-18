@@ -13,6 +13,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/urfave/cli/v2"
+	"github.com/usedbytes/ducky-tools/lib/config"
 	"github.com/usedbytes/ducky-tools/lib/iap"
 	"github.com/usedbytes/ducky-tools/lib/iap2"
 	"github.com/usedbytes/ducky-tools/lib/exe/one"
@@ -21,34 +22,6 @@ import (
 
 	"github.com/sigurn/crc16"
 )
-
-func extract2Action(ctx *cli.Context) error {
-	if ctx.Args().Len() != 1 {
-		return fmt.Errorf("INPUT_FILE is required")
-	}
-	fname := ctx.Args().First()
-
-	cfg, err := exe.Load(fname)
-	if err != nil {
-		return err
-	}
-
-	if ctx.IsSet("out") {
-		fname = ctx.String("out")
-	} else {
-		fname = filepath.Base(fname)
-		if filepath.Ext(fname) != ".toml" {
-			fname = fname + ".toml"
-		}
-	}
-
-	err = cfg.Write(fname)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
 
 func loadUpdateFile(ctx *cli.Context) (*one.Update, string, error) {
 	if ctx.Args().Len() != 1 {
@@ -96,9 +69,23 @@ func loadUpdateFile(ctx *cli.Context) (*one.Update, string, error) {
 }
 
 func extractAction(ctx *cli.Context) error {
-	u, fname, err := loadUpdateFile(ctx)
-	if err != nil {
-		return err
+	if ctx.Args().Len() != 1 {
+		return fmt.Errorf("INPUT_FILE is required")
+	}
+	fname := ctx.Args().First()
+
+	var cfg *config.Config
+	var err error
+
+	ext := filepath.Ext(fname)
+	switch ext {
+	case ".exe":
+		cfg, err = exe.Load(fname)
+		if err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("expected a .exe, got %s", ext)
 	}
 
 	if ctx.IsSet("out") {
@@ -109,22 +96,8 @@ func extractAction(ctx *cli.Context) error {
 			fname = fname + ".toml"
 		}
 	}
-	u.Name = filepath.Base(fname)
 
-	if ctx.IsSet("xferkey") {
-		key, err := ioutil.ReadFile(ctx.String("xferkey"))
-		if err != nil {
-			return err
-		}
-
-		for _, v := range u.Images {
-			if len(v.XferKey) == 0 {
-				v.XferKey = key
-			}
-		}
-	}
-
-	err = u.WriteTOML(fname)
+	err = cfg.Write(fname)
 	if err != nil {
 		return err
 	}
@@ -695,40 +668,14 @@ func main() {
 
 	app.Commands = []*cli.Command{
 		{
-			Name:      "extract2",
-			ArgsUsage: "INPUT_FILE",
-			Action:    extract2Action,
-			Flags: []cli.Flag{
-				&cli.StringFlag{
-					Name:     "out",
-					Aliases:  []string{"o"},
-					Usage:    "Output filename (.toml)",
-					Required: false,
-				},
-			},
-		},
-		{
 			Name:      "extract",
 			ArgsUsage: "INPUT_FILE",
 			Action:    extractAction,
 			Flags: []cli.Flag{
 				&cli.StringFlag{
-					Name:     "version",
-					Aliases:  []string{"V"},
-					Usage:    "Specify the updater version if it can't be found automatically",
-					Required: false,
-					Value:    "1.03r",
-				},
-				&cli.StringFlag{
 					Name:     "out",
 					Aliases:  []string{"o"},
 					Usage:    "Output filename (.toml)",
-					Required: false,
-				},
-				&cli.StringFlag{
-					Name:     "xferkey",
-					Aliases:  []string{"x"},
-					Usage:    "File containing the 52-byte transfer key (for decoding FW)",
 					Required: false,
 				},
 			},
