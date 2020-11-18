@@ -175,6 +175,8 @@ func devicesAction(ctx *cli.Context) error {
 					Application: &config.Application{
 						VID: vid,
 						PID: pid,
+						// XXX: This shouldn't be hard-coded when we have protocol detection
+						Protocol: config.One,
 					},
 				},
 			},

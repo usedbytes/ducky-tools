@@ -26,6 +26,7 @@ type usbContext struct {
 
 type Protocol interface {
 	Close()
+	Reset(toIAP bool) error
 }
 
 func NewContextWithProtocol(vid, pid uint16, protocol string) (Protocol, error) {
