@@ -51,6 +51,15 @@ func (fw *Firmware) GenerateFilenames() {
 		fname := fmt.Sprintf("%s.%08x.%s.bin", base, hash, k)
 
 		v.DataFile = replaceFilenameChars(fname)
+
+		if len(v.XferKey) != 0 {
+			parts[0] = "xferkey"
+			base := strings.Join(parts, "_")
+			hash := crc32.Checksum(v.XferKey, crc32.IEEETable)
+			fname := fmt.Sprintf("%s.%08x.%s.bin", base, hash, k)
+
+			v.XferKeyFile = replaceFilenameChars(fname)
+		}
 	}
 }
 
@@ -139,6 +148,20 @@ func (img *Image) LoadData() error {
 		img.Data = data
 	}
 
+	if len(img.XferKeyFile) != 0 {
+		f, err := os.Open(img.XferKeyFile)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+
+		data, err := ioutil.ReadAll(f)
+		if err != nil {
+			return err
+		}
+		img.XferKey = data
+	}
+
 	return nil
 }
 
@@ -157,6 +180,31 @@ func (img *Image) WriteData() error {
 		if n != len(img.Data) {
 			f.Close()
 			return errors.New("short write for Data")
+		} else if err != nil {
+			f.Close()
+			return err
+		}
+
+		err = f.Close()
+		if err != nil {
+			return err
+		}
+	}
+
+	if len(img.XferKey) != 0 {
+		if len(img.XferKeyFile) == 0 {
+			return errors.New("can't write XferKey - no filename")
+		}
+
+		f, err := os.Create(img.XferKeyFile)
+		if err != nil {
+			return err
+		}
+
+		n, err := f.Write(img.XferKey)
+		if n != len(img.XferKey) {
+			f.Close()
+			return errors.New("short write for XferKey")
 		} else if err != nil {
 			f.Close()
 			return err

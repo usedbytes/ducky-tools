@@ -96,6 +96,8 @@ type Image struct {
 	DataFile    string `toml:"data_file,omitempty"`
 	XferEncoded bool   `toml:"xfer_encoded"`
 	Data        []byte `toml:"-"`
+	XferKey     []byte `toml:"-"`
+	XferKeyFile string `toml:"xfer_key_file,omitempty"`
 }
 
 type Config struct {
