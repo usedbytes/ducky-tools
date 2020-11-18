@@ -308,12 +308,6 @@ func updateAction(ctx *cli.Context) error {
 		return err
 	}
 
-	iapCtx, err := enterIAP(cfg)
-	if err != nil {
-		return err
-	}
-	defer iapCtx.Reset(false)
-
 	if len(cfg.Devices) != 1 || len(cfg.Devices[0].Firmwares) != 1 {
 		// XXX: This is temporary, this command will go away entirely.
 		return errors.New("update requires a single device with a single firmware")
@@ -327,6 +321,12 @@ func updateAction(ctx *cli.Context) error {
 	if !img.XferEncoded {
 		return errors.New("update image must be XferEncoded")
 	}
+
+	iapCtx, err := enterIAP(cfg)
+	if err != nil {
+		return err
+	}
+	defer iapCtx.Reset(false)
 
 	if cfg.Exe == nil || len(cfg.Exe.ExtraCRC) == 0 {
 		// XXX: This is temporary, this command will get reworked
