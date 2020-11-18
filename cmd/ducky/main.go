@@ -159,6 +159,42 @@ func decodeAction(ctx *cli.Context) error {
 	return nil
 }
 
+func devicesAction(ctx *cli.Context) error {
+	var cfg *config.Config
+	var err error
+	if ctx.Args().Len() == 1 {
+		cfg, err = loadUpdateFile(ctx)
+		if err != nil {
+			return err
+		}
+	} else {
+		vid := uint16(ctx.Uint("vid"))
+		pid := uint16(ctx.Uint("pid"))
+		cfg = &config.Config{
+			Devices: []*config.Device{
+				&config.Device{
+					Application: &config.Application{
+						VID: vid,
+						PID: pid,
+					},
+				},
+			},
+		}
+	}
+
+	apps := FindDevices(cfg.Devices)
+
+	if len(apps) == 0 {
+		return errors.New("didn't find any devices")
+	}
+
+	for _, app := range apps {
+		log.Printf(">>> Device VID:PID: 0x%04x:0x%04x\n", app.VID, app.PID)
+	}
+
+	return nil
+}
+
 func iapTestAction(ctx *cli.Context) error {
 	log.Println(">>> Loading update file...")
 	cfg, err := loadUpdateFile(ctx)
@@ -761,6 +797,26 @@ func main() {
 							Required: true,
 						},
 					},
+				},
+			},
+		},
+		{
+			Name: "devices",
+			Usage:     "Try and connect to devices",
+			ArgsUsage: "[INPUT_FILE]",
+			Action:    devicesAction,
+			Flags: []cli.Flag{
+				&cli.UintFlag{
+					Name:     "vid",
+					Usage:    "Vendor ID (VID)",
+					Required: false,
+					Value:    0x04d9,
+				},
+				&cli.UintFlag{
+					Name:     "pid",
+					Aliases:  []string{"p"},
+					Usage:    "Product ID (PID)",
+					Required: false,
 				},
 			},
 		},
