@@ -178,6 +178,7 @@ func (u *Update) WriteTOML(file string) error {
 		tb := &tomlBlob{
 			CheckCRC:    v.CheckCRC,
 			FileEncoded: false,
+			XferEncoded: true,
 		}
 		tu.Images[k.String()] = tb
 
