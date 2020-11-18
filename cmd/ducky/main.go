@@ -18,6 +18,7 @@ import (
 	"github.com/usedbytes/ducky-tools/lib/iap2"
 	"github.com/usedbytes/ducky-tools/lib/exe/one"
 	"github.com/usedbytes/ducky-tools/lib/exe"
+	"github.com/usedbytes/ducky-tools/lib/xor"
 	"github.com/usedbytes/log"
 
 	"github.com/sigurn/crc16"
@@ -89,6 +90,63 @@ func extractAction(ctx *cli.Context) error {
 		fname = ctx.String("out")
 	} else {
 		fname = filepath.Base(fname)
+		if filepath.Ext(fname) != ".toml" {
+			fname = fname + ".toml"
+		}
+	}
+
+	err = cfg.Write(fname)
+	if err != nil {
+		return err
+	}
+
+	log.Println("Wrote to", fname)
+
+	return nil
+}
+
+func decodeAction(ctx *cli.Context) error {
+	cfg, err := loadUpdateFile(ctx)
+	if err != nil {
+		return err
+	}
+
+	for i, d := range cfg.Devices {
+		for j, fw := range d.Firmwares {
+			regen := false
+
+			for k, img := range fw.Images {
+				if !img.XferEncoded || len(img.Data) == 0 {
+					continue
+				}
+
+				log.Printf(">>> Device %d, Firmware %d, Image %s\n", i, j, k)
+				key, err := xor.FindKey(img.Data, 0x34)
+				if err != nil {
+					log.Println("!!! Failed to find key", err)
+					continue
+				}
+
+
+				img.Data = xor.Decode(img.Data, key, false)
+				img.XferKey = key
+				img.XferEncoded = false
+				log.Println(">>> Decoded.")
+				regen = true
+
+			}
+
+			if regen {
+				fw.GenerateFilenames()
+			}
+		}
+	}
+
+	var fname string
+	if ctx.IsSet("out") {
+		fname = ctx.String("out")
+	} else {
+		fname = filepath.Base(ctx.Args().First())
 		if filepath.Ext(fname) != ".toml" {
 			fname = fname + ".toml"
 		}
@@ -714,6 +772,19 @@ func main() {
 			Name:      "extract",
 			ArgsUsage: "INPUT_FILE",
 			Action:    extractAction,
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:     "out",
+					Aliases:  []string{"o"},
+					Usage:    "Output filename (.toml)",
+					Required: false,
+				},
+			},
+		},
+		{
+			Name:      "decode",
+			ArgsUsage: "INPUT_FILE",
+			Action:    decodeAction,
 			Flags: []cli.Flag{
 				&cli.StringFlag{
 					Name:     "out",
