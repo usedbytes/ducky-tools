@@ -12,7 +12,6 @@ import (
 	"github.com/urfave/cli/v2"
 	"github.com/usedbytes/ducky-tools/lib/config"
 	"github.com/usedbytes/ducky-tools/lib/iap"
-	"github.com/usedbytes/ducky-tools/lib/iap2"
 	"github.com/usedbytes/ducky-tools/lib/exe/one"
 	"github.com/usedbytes/ducky-tools/lib/exe"
 	"github.com/usedbytes/ducky-tools/lib/xor"
@@ -212,10 +211,11 @@ func iapTestAction(ctx *cli.Context) error {
 	vid, pid := dev.Application.VID, dev.Application.PID
 
 	log.Println(">>> Connecting in AP mode...")
-	iapCtx, err := iap.NewContext(uint16(vid), uint16(pid))
+	proto, err := iap.NewContextWithProtocol(uint16(vid), uint16(pid), "one")
 	if err != nil {
 		return err
 	}
+	iapCtx := proto.(*iap.ProtocolOne)
 	defer iapCtx.Close()
 
 	log.Print(">>> Attempt Ping... ")
@@ -251,7 +251,7 @@ func iapTestAction(ctx *cli.Context) error {
 	vid, pid = dev.Bootloader.VID, dev.Bootloader.PID
 	for i := 0; i < 10; i++ {
 		time.Sleep(100 * time.Millisecond)
-		iapCtx, err = iap.NewContext(vid, pid)
+		proto, err = iap.NewContextWithProtocol(uint16(vid), uint16(pid), "one")
 		if err == nil {
 			break
 		}
@@ -259,6 +259,7 @@ func iapTestAction(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
+	iapCtx = proto.(*iap.ProtocolOne)
 
 	defer func() {
 		log.Println("Reset back to AP mode...")
@@ -295,7 +296,7 @@ func iapTestAction(ctx *cli.Context) error {
 	return nil
 }
 
-func enterIAP(cfg *config.Config) (*iap.Context, error) {
+func enterIAP(cfg *config.Config) (*iap.ProtocolOne, error) {
 	if len(cfg.Devices) != 1 || cfg.Devices[0].Application == nil || cfg.Devices[0].Bootloader == nil {
 		// XXX: This is temporary, this command will get reworked.
 		return nil, errors.New("require a single device with Application and Bootloader information")
@@ -304,13 +305,14 @@ func enterIAP(cfg *config.Config) (*iap.Context, error) {
 	dev := cfg.Devices[0]
 
 	vid, pid := dev.Bootloader.VID, dev.Bootloader.PID
-	iapCtx, err := iap.NewContext(vid, pid)
+	proto, err := iap.NewContextWithProtocol(uint16(vid), uint16(pid), "one")
 	if err != nil {
 		v, p := dev.Application.VID, dev.Application.PID
-		iapCtx, err = iap.NewContext(v, p)
+		proto, err = iap.NewContextWithProtocol(uint16(v), uint16(p), "one")
 		if err != nil {
 			return nil, err
 		}
+		iapCtx := proto.(*iap.ProtocolOne)
 		// This is redundant if we reach the .Reset(), but Close-ing
 		// twice is fine
 		defer iapCtx.Close()
@@ -328,14 +330,18 @@ func enterIAP(cfg *config.Config) (*iap.Context, error) {
 
 		for i := 0; i < 10; i++ {
 			time.Sleep(100 * time.Millisecond)
-			iapCtx, err = iap.NewContext(vid, pid)
+			proto, err = iap.NewContextWithProtocol(uint16(vid), uint16(pid), "one")
 			if err == nil {
+				iapCtx = proto.(*iap.ProtocolOne)
 				return iapCtx, nil
 			}
 		}
+	} else {
+		iapCtx := proto.(*iap.ProtocolOne)
+		return iapCtx, nil
 	}
 
-	return iapCtx, err
+	return nil, err
 }
 
 func updateAction(ctx *cli.Context) error {
@@ -619,10 +625,11 @@ func iap2TestAction(ctx *cli.Context) error {
 	pid := ctx.Uint("pid")
 
 	log.Println(">>> Connecting in AP mode...")
-	iapCtx, err := iap2.NewContext(uint16(vid), uint16(pid))
+	proto, err := iap.NewContextWithProtocol(uint16(vid), uint16(pid), "one2")
 	if err != nil {
 		return err
 	}
+	iapCtx := proto.(*iap.ProtocolOne2)
 	defer iapCtx.Close()
 
 	iap2Cmd := func(cmd []byte) error {

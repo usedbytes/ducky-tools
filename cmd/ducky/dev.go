@@ -8,7 +8,7 @@ import (
 )
 
 func tryApp(app *config.Application) error {
-	ctx, err := iap.NewContext(app.VID, app.PID)
+	ctx, err := iap.NewContextWithProtocol(app.VID, app.PID, "one")
 	if err == nil {
 		// TODO: ctx.Reset() when we have a unified context
 		ctx.Close()

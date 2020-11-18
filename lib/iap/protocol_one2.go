@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2020 Brian Starkey <stark3y@gmail.com>
-package iap2
+package iap
 
 import (
 	"bytes"
@@ -9,7 +9,6 @@ import (
 	"encoding/binary"
 	"time"
 
-	"github.com/google/gousb"
 	"github.com/pkg/errors"
 	"github.com/usedbytes/log"
 )
@@ -112,136 +111,26 @@ import (
 //     0060   00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00   ................
 //     0070   00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00   ................
 
-
-
-var closedErr error = errors.New("context closed")
-
-type Context struct {
-	bg    context.Context
-	ctx   *gousb.Context
-	dev   *gousb.Device
-	cfg   *gousb.Config
-	intf  *gousb.Interface
-	outEp *gousb.OutEndpoint
-	inEp  *gousb.InEndpoint
-
-	closed bool
+type ProtocolOne2 struct {
+	*usbContext
 }
 
-func NewContext(vid, pid uint16) (*Context, error) {
-	ctx := &Context{
-		bg:   context.Background(),
-		ctx:  gousb.NewContext(),
+func newProtocolOne2(ctx *usbContext) (Protocol, error) {
+	proto := &ProtocolOne2{
+		usbContext: ctx,
 	}
 
-	log.Verbosef("NewContext %04x:%04x\n", vid, pid)
-
-	var err error
-	ctx.dev, err = ctx.ctx.OpenDeviceWithVIDPID(gousb.ID(vid), gousb.ID(pid))
-	if err != nil {
-		// Now I understand what go2 is trying to improve
-		ctx.Close()
-		return nil, err
-	} else if ctx.dev == nil {
-		ctx.Close()
-		return nil, errors.New("Couldn't find a matching device")
-	}
-
-	err = ctx.dev.SetAutoDetach(true)
-	if err != nil {
-		ctx.Close()
-		return nil, err
-	}
-
-	num, err := ctx.dev.ActiveConfigNum()
-	if err != nil {
-		ctx.Close()
-		return nil, err
-	}
-
-	ctx.cfg, err = ctx.dev.Config(num)
-	if err != nil {
-		ctx.Close()
-		return nil, err
-	}
-
-	ctx.intf, err = ctx.cfg.Interface(1, 0)
-	if err != nil {
-		ctx.Close()
-		return nil, err
-	}
-
-	for _, v := range ctx.intf.Setting.Endpoints {
-		if v.TransferType != gousb.TransferTypeInterrupt {
-			ctx.Close()
-			return nil, errors.New("Expected to find interrupt endpoints")
-		}
-
-		if v.Direction == gousb.EndpointDirectionIn {
-			if ctx.inEp != nil {
-				ctx.Close()
-				return nil, errors.New("Found multiple In endpoints")
-			}
-			ctx.inEp, err = ctx.intf.InEndpoint(v.Number)
-			if err != nil {
-				ctx.Close()
-				return nil, err
-			}
-		}
-
-		if v.Direction == gousb.EndpointDirectionOut {
-			if ctx.outEp != nil {
-				ctx.Close()
-				return nil, errors.New("Found multiple Out endpoints")
-			}
-			ctx.outEp, err = ctx.intf.OutEndpoint(v.Number)
-			if err != nil {
-				ctx.Close()
-				return nil, err
-			}
-		}
-	}
-
-	log.Verboseln(ctx.intf)
-	log.Verboseln(ctx.inEp)
-	log.Verboseln(ctx.outEp)
-
-	return ctx, nil
+	return proto, nil
 }
 
-func (c *Context) Close() {
-	if c.closed {
-		return
-	}
-
-	if c.intf != nil {
-		c.intf.Close()
-		c.intf = nil
-	}
-	if c.cfg != nil {
-		c.cfg.Close()
-		c.cfg = nil
-	}
-	if c.dev != nil {
-		c.dev.Close()
-		c.dev = nil
-	}
-	if c.ctx != nil {
-		c.ctx.Close()
-		c.ctx = nil
-	}
-
-	c.closed = true
-}
-
-func (c *Context) sendPacket(packet []byte) ([]byte, error) {
+func (p *ProtocolOne2) sendPacket(packet []byte) ([]byte, error) {
 	if len(packet) < 0x40 {
 		packet = append(packet, make([]byte, 0x40-len(packet))...)
 	}
 
 	log.Verbose("Write\n", hex.Dump(packet))
 
-	n, err := c.outEp.Write(packet)
+	n, err := p.outEp.Write(packet)
 	if err != nil {
 		return nil, err
 	} else if n != len(packet) {
@@ -251,15 +140,15 @@ func (c *Context) sendPacket(packet []byte) ([]byte, error) {
 	return packet, nil
 }
 
-func (c *Context) readPacket(packet []byte) (int, error) {
+func (p *ProtocolOne2) readPacket(packet []byte) (int, error) {
 	if len(packet) != 0x40 {
 		return 0, errors.New("Read transfers must be 64 bytes")
 	}
 
-	to, cancel := context.WithTimeout(c.bg, 5*time.Second)
+	to, cancel := context.WithTimeout(p.bg, 5*time.Second)
 	defer cancel()
 
-	n, err := c.inEp.ReadContext(to, packet)
+	n, err := p.inEp.ReadContext(to, packet)
 	if err == nil {
 		log.Verbose("Read", n, "\n", hex.Dump(packet))
 	}
@@ -268,8 +157,8 @@ func (c *Context) readPacket(packet []byte) (int, error) {
 }
 
 // 'toIAP' is ignored when in AP mode. It always resets to IAP
-func (c *Context) Reset(toIAP bool) error {
-	if c.closed {
+func (p *ProtocolOne2) Reset(toIAP bool) error {
+	if p.closed {
 		return closedErr
 	}
 
@@ -281,19 +170,19 @@ func (c *Context) Reset(toIAP bool) error {
 		packet[1] = 1
 	}
 
-	_, err := c.sendPacket(packet)
+	_, err := p.sendPacket(packet)
 	if err != nil {
 		return err
 	}
 
 	// Device will have gone away, so kill the context
-	c.Close()
+	p.Close()
 
 	return err
 }
 
-func (c *Context) Ping(val byte) (bool, error) {
-	if c.closed {
+func (p *ProtocolOne2) Ping(val byte) (bool, error) {
+	if p.closed {
 		return false, closedErr
 	}
 
@@ -302,13 +191,13 @@ func (c *Context) Ping(val byte) (bool, error) {
 		val,
 	}
 
-	packet, err := c.sendPacket(packet)
+	packet, err := p.sendPacket(packet)
 	if err != nil {
 		return false, err
 	}
 
 	response := [0x40]byte{}
-	_, err = c.readPacket(response[:])
+	_, err = p.readPacket(response[:])
 	if err != nil {
 		return false, err
 	}
@@ -333,8 +222,8 @@ func Checksum(data []byte) uint32 {
 	return sum
 }
 
-func (c *Context) Checksum(start, length uint32) (uint32, error) {
-	if c.closed {
+func (p *ProtocolOne2) Checksum(start, length uint32) (uint32, error) {
+	if p.closed {
 		return 0, closedErr
 	}
 
@@ -347,13 +236,13 @@ func (c *Context) Checksum(start, length uint32) (uint32, error) {
 	binary.LittleEndian.PutUint32(packet[4:], start)
 	binary.LittleEndian.PutUint32(packet[8:], length)
 
-	_, err := c.sendPacket(packet)
+	_, err := p.sendPacket(packet)
 	if err != nil {
 		return 0, err
 	}
 
 	response := [0x40]byte{}
-	_, err = c.readPacket(response[:])
+	_, err = p.readPacket(response[:])
 	if err != nil {
 		return 0, err
 	}
@@ -367,8 +256,8 @@ func (c *Context) Checksum(start, length uint32) (uint32, error) {
 	return csum, nil
 }
 
-func (c *Context) SetWritePointer(addr uint32) (error) {
-	if c.closed {
+func (p *ProtocolOne2) SetWritePointer(addr uint32) (error) {
+	if p.closed {
 		return closedErr
 	}
 
@@ -379,13 +268,13 @@ func (c *Context) SetWritePointer(addr uint32) (error) {
 
 	binary.LittleEndian.PutUint32(packet[4:], addr)
 
-	_, err := c.sendPacket(packet)
+	_, err := p.sendPacket(packet)
 	if err != nil {
 		return err
 	}
 
 	response := [0x40]byte{}
-	_, err = c.readPacket(response[:])
+	_, err = p.readPacket(response[:])
 	if err != nil {
 		return err
 	}
@@ -397,8 +286,8 @@ func (c *Context) SetWritePointer(addr uint32) (error) {
 	return nil
 }
 
-func (c *Context) GetWritePointer() (uint32, error) {
-	if c.closed {
+func (p *ProtocolOne2) GetWritePointer() (uint32, error) {
+	if p.closed {
 		return 0, closedErr
 	}
 
@@ -407,13 +296,13 @@ func (c *Context) GetWritePointer() (uint32, error) {
 		0xff, 0xff, 0xff, 0xff,
 	}
 
-	_, err := c.sendPacket(packet)
+	_, err := p.sendPacket(packet)
 	if err != nil {
 		return 0, err
 	}
 
 	response := [0x40]byte{}
-	_, err = c.readPacket(response[:])
+	_, err = p.readPacket(response[:])
 	if err != nil {
 		return 0, err
 	}
@@ -427,8 +316,8 @@ func (c *Context) GetWritePointer() (uint32, error) {
 	return addr, nil
 }
 
-func (c *Context) Erase() (uint32, error) {
-	if c.closed {
+func (p *ProtocolOne2) Erase() (uint32, error) {
+	if p.closed {
 		return 0, closedErr
 	}
 
@@ -442,13 +331,13 @@ func (c *Context) Erase() (uint32, error) {
 		0x00, 0xd0, 0x00, 0x00, // Length?
 	}
 
-	_, err := c.sendPacket(packet)
+	_, err := p.sendPacket(packet)
 	if err != nil {
 		return 0, err
 	}
 
 	response := [0x40]byte{}
-	_, err = c.readPacket(response[:])
+	_, err = p.readPacket(response[:])
 	if err != nil {
 		return 0, err
 	}
@@ -462,8 +351,8 @@ func (c *Context) Erase() (uint32, error) {
 	return resp, nil
 }
 
-func (c *Context) ReadChunk(addr uint32) ([]byte, error) {
-	if c.closed {
+func (p *ProtocolOne2) ReadChunk(addr uint32) ([]byte, error) {
+	if p.closed {
 		return nil, closedErr
 	}
 
@@ -479,13 +368,13 @@ func (c *Context) ReadChunk(addr uint32) ([]byte, error) {
 	chunk := addr / 0x3c
 	binary.LittleEndian.PutUint32(packet[4:], chunk)
 
-	_, err := c.sendPacket(packet)
+	_, err := p.sendPacket(packet)
 	if err != nil {
 		return nil, err
 	}
 
 	response := [0x40]byte{}
-	_, err = c.readPacket(response[:])
+	_, err = p.readPacket(response[:])
 	if err != nil {
 		return nil, err
 	}
@@ -497,8 +386,8 @@ func (c *Context) ReadChunk(addr uint32) ([]byte, error) {
 	return response[4:], nil
 }
 
-func (c *Context) Write(data []byte) (uint32, error) {
-	if c.closed {
+func (p *ProtocolOne2) Write(data []byte) (uint32, error) {
+	if p.closed {
 		return 0, closedErr
 	}
 
@@ -513,13 +402,13 @@ func (c *Context) Write(data []byte) (uint32, error) {
 	packet[1] = byte(len(data))
 
 	packet = append(packet, data...)
-	_, err := c.sendPacket(packet)
+	_, err := p.sendPacket(packet)
 	if err != nil {
 		return 0, err
 	}
 
 	response := [0x40]byte{}
-	_, err = c.readPacket(response[:])
+	_, err = p.readPacket(response[:])
 	if err != nil {
 		return 0, err
 	}
@@ -533,13 +422,13 @@ func (c *Context) Write(data []byte) (uint32, error) {
 	return addr, nil
 }
 
-func (c *Context) RawSend(data []byte) error {
-	_, err := c.sendPacket(data)
+func (p *ProtocolOne2) RawSend(data []byte) error {
+	_, err := p.sendPacket(data)
 	return err
 }
 
-func (c *Context) RawReceive() ([]byte, error) {
+func (p *ProtocolOne2) RawReceive() ([]byte, error) {
 	data := make([]byte, 64)
-	_, err := c.readPacket(data)
+	_, err := p.readPacket(data)
 	return data, err
 }
