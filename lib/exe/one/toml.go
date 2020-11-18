@@ -4,11 +4,8 @@ package one
 
 import (
 	"encoding/binary"
-	"fmt"
 	"io/ioutil"
-	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/BurntSushi/toml"
 	"github.com/pkg/errors"
@@ -150,105 +147,4 @@ func LoadTOMLUpdate(file string) (*Update, error) {
 	}
 
 	return &u, nil
-}
-
-func removeIfTrue(file string, cond *bool) {
-	if *cond {
-		os.Remove(file)
-	}
-}
-
-func (u *Update) WriteTOML(file string) error {
-	tu := tomlUpdate{
-		Name:      u.Name,
-		IAPVerStr: u.IAPVersion.String(),
-		VerStr:    u.Version.String(),
-		FileKey:   u.FileKey,
-		ApVidPid:  []uint16{u.APVID, u.APPID},
-		IapVidPid: []uint16{u.IAPVID, u.IAPPID},
-		Images:    make(map[string]*tomlBlob),
-	}
-
-	fail := true
-
-	dir := filepath.Dir(file)
-	base := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
-
-	for k, v := range u.Images {
-		tb := &tomlBlob{
-			CheckCRC:    v.CheckCRC,
-			FileEncoded: false,
-			XferEncoded: true,
-		}
-		tu.Images[k.String()] = tb
-
-		if len(v.Data) != 0 {
-			// Always write out the encoded version
-			data := v.Data
-			mod := "enc"
-			tb.DataFile = fmt.Sprintf("%s.%s.%s.bin", base, k, mod)
-			fullname := filepath.Join(dir, tb.DataFile)
-
-			err := ioutil.WriteFile(fullname, data, 0644)
-			if err != nil {
-				return err
-			}
-			defer removeIfTrue(fullname, &fail)
-
-			// But prefer to use the non-encoded version if possible
-			if len(v.XferKey) != 0 {
-				tb.XferEncoded = false
-				data = XORDecode(v.Data, v.XferKey, false)
-				mod = "plain"
-
-				tb.DataFile = fmt.Sprintf("%s.%s.%s.bin", base, k, mod)
-				fullname := filepath.Join(dir, tb.DataFile)
-
-				err := ioutil.WriteFile(fullname, data, 0644)
-				if err != nil {
-					return err
-				}
-				defer removeIfTrue(fullname, &fail)
-			}
-		}
-
-		if len(v.ExtraCRC) != 0 {
-			tb.ExtraCRCFile = fmt.Sprintf("%s.%s.extracrc.bin", base, k)
-			fullname := filepath.Join(dir, tb.ExtraCRCFile)
-
-			err := ioutil.WriteFile(fullname, v.ExtraCRC, 0644)
-			if err != nil {
-				return err
-			}
-			defer removeIfTrue(fullname, &fail)
-		}
-
-		if len(v.XferKey) != 0 {
-			tb.XferKeyFile = fmt.Sprintf("%s.%s.xferkey.bin", base, k)
-			fullname := filepath.Join(dir, tb.XferKeyFile)
-
-			err := ioutil.WriteFile(fullname, v.XferKey, 0644)
-			if err != nil {
-				return err
-			}
-			defer removeIfTrue(fullname, &fail)
-		}
-	}
-
-	f, err := os.Create(file)
-	if err != nil {
-		return err
-	}
-	defer removeIfTrue(file, &fail)
-
-	enc := toml.NewEncoder(f)
-	err = enc.Encode(&tu)
-	if err != nil {
-		return err
-	}
-
-	// Prevent cleanup
-	fail = false
-
-	return nil
 }
