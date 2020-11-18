@@ -23,49 +23,40 @@ import (
 	"github.com/sigurn/crc16"
 )
 
-func loadUpdateFile(ctx *cli.Context) (*one.Update, string, error) {
+func loadUpdateFile(ctx *cli.Context) (*config.Config, error) {
 	if ctx.Args().Len() != 1 {
-		return nil, "", fmt.Errorf("INPUT_FILE is required")
+		return nil, fmt.Errorf("INPUT_FILE is required")
 	}
 	fname := ctx.Args().First()
 
-	var u *one.Update
+	var cfg *config.Config
 	var err error
 
 	ext := filepath.Ext(fname)
 	switch ext {
 	case ".exe":
-		ver := ctx.String("version")
-		// Attempt to automatically get the version, based on Ducky's file
-		// naming convention
-		if !ctx.IsSet("version") {
-			ver, err = one.ParseExeVersion(fname)
-			if err != nil {
-				return nil, "", err
-			}
-		}
-
-		u, err = one.LoadExeUpdateVersion(fname, ver)
+		cfg, err = exe.Load(fname)
 		if err != nil {
-			return nil, "", err
+			return nil, err
 		}
 	case ".toml":
-		u, err = one.LoadTOMLUpdate(fname)
+		cfg, err = config.LoadConfig(fname)
 		if err != nil {
-			return nil, "", err
+			return nil, err
 		}
+	case ".old":
+		u, err := one.LoadTOMLUpdate(fname)
+		if err != nil {
+			return nil, err
+		}
+		cfg = u.ToConfig()
 	default:
-		return nil, "", errors.New("unrecognised file extension")
+		return nil, errors.New("unrecognised file extension")
 	}
 
-	err = u.Validate()
-	if err != nil {
-		return nil, "", err
-	}
+	log.Verbosef("Update loaded:\n%v", cfg)
 
-	log.Verbosef("Update loaded:\n%s", u)
-
-	return u, filepath.Base(fname), nil
+	return cfg, nil
 }
 
 func extractAction(ctx *cli.Context) error {
@@ -108,13 +99,18 @@ func extractAction(ctx *cli.Context) error {
 }
 
 func extractKeyAction(ctx *cli.Context) error {
-	u, _, err := loadUpdateFile(ctx)
+	cfg, err := loadUpdateFile(ctx)
 	if err != nil {
 		return err
 	}
 
-	img := u.Images[one.Internal]
-	if len(img.Data) == 0 {
+	if len(cfg.Devices) != 1 || len(cfg.Devices[0].Firmwares) != 1 {
+		// XXX: This is temporary, this command will go away entirely.
+		return errors.New("extractkey requires a single device with a single firmware")
+	}
+
+	img, ok := cfg.Devices[0].Firmwares[0].Images[string(config.Internal)]
+	if !ok || len(img.Data) == 0 {
 		return errors.New("no data for internal image")
 	}
 
@@ -193,7 +189,7 @@ func extractKeyAction(ctx *cli.Context) error {
 
 	fmt.Println(hex.Dump(key[:]))
 
-	img.XferKey = key[:]
+	/* No such thing as CheckCRC for One2 images
 	crc, err := img.CalculateCheckCRC()
 	if err != nil {
 		return err
@@ -205,6 +201,7 @@ func extractKeyAction(ctx *cli.Context) error {
 	} else {
 		log.Println("CRC Check failed! Key may be incorrect.")
 	}
+	*/
 
 	if ctx.IsSet("out") {
 		err := ioutil.WriteFile(ctx.String("out"), key[:], 0644)
@@ -219,12 +216,19 @@ func extractKeyAction(ctx *cli.Context) error {
 
 func iapTestAction(ctx *cli.Context) error {
 	log.Println(">>> Loading update file...")
-	u, _, err := loadUpdateFile(ctx)
+	cfg, err := loadUpdateFile(ctx)
 	if err != nil {
 		return err
 	}
 
-	vid, pid := u.APVID, u.APPID
+	if len(cfg.Devices) != 1 || cfg.Devices[0].Application == nil || cfg.Devices[0].Bootloader == nil {
+		// XXX: This is temporary, this command will get reworked.
+		return errors.New("iap test requires a single device with Application and Bootloader information")
+	}
+
+	dev := cfg.Devices[0]
+
+	vid, pid := dev.Application.VID, dev.Application.PID
 
 	log.Println(">>> Connecting in AP mode...")
 	iapCtx, err := iap.NewContext(uint16(vid), uint16(pid))
@@ -249,15 +253,21 @@ func iapTestAction(ctx *cli.Context) error {
 	}
 
 	log.Println(fwv)
-	if !u.Version.Compatible(fwv) {
-		return fmt.Errorf("versions incompatible. Update: %s, Device: %s", u.Version, fwv)
+	fw := cfg.Devices[0].Firmwares[0]
+	if !fw.Version.Compatible(fwv) {
+		return fmt.Errorf("versions incompatible. Update: %s, Device: %s", fw.Version, fwv)
+	}
+
+	if cfg.Exe == nil || len(cfg.Exe.ExtraCRC) == 0 {
+		// XXX: This is temporary, this command will get reworked
+		return errors.New("iap test requires ExtraCRC")
 	}
 
 	log.Println(">>> Reset to IAP mode...")
 	iapCtx.Reset(false)
 
 	log.Println(">>> Connecting in IAP mode...")
-	vid, pid = u.IAPVID, u.IAPPID
+	vid, pid = dev.Bootloader.VID, dev.Bootloader.PID
 	for i := 0; i < 10; i++ {
 		time.Sleep(100 * time.Millisecond)
 		iapCtx, err = iap.NewContext(vid, pid)
@@ -274,9 +284,7 @@ func iapTestAction(ctx *cli.Context) error {
 		iapCtx.Reset(false)
 	}()
 
-	img := u.Images[one.Internal]
-
-	iapCtx.SetExtraCRCData(img.ExtraCRC)
+	iapCtx.SetExtraCRCData(cfg.Exe.ExtraCRC)
 
 	info, err := iapCtx.GetInformation()
 	if err != nil {
@@ -306,11 +314,18 @@ func iapTestAction(ctx *cli.Context) error {
 	return nil
 }
 
-func enterIAP(u *one.Update) (*iap.Context, error) {
-	vid, pid := u.IAPVID, u.IAPPID
+func enterIAP(cfg *config.Config) (*iap.Context, error) {
+	if len(cfg.Devices) != 1 || cfg.Devices[0].Application == nil || cfg.Devices[0].Bootloader == nil {
+		// XXX: This is temporary, this command will get reworked.
+		return nil, errors.New("require a single device with Application and Bootloader information")
+	}
+
+	dev := cfg.Devices[0]
+
+	vid, pid := dev.Bootloader.VID, dev.Bootloader.PID
 	iapCtx, err := iap.NewContext(vid, pid)
 	if err != nil {
-		v, p := u.APVID, u.APPID
+		v, p := dev.Application.VID, dev.Application.PID
 		iapCtx, err = iap.NewContext(v, p)
 		if err != nil {
 			return nil, err
@@ -323,8 +338,9 @@ func enterIAP(u *one.Update) (*iap.Context, error) {
 		if err != nil {
 			return nil, err
 		}
-		if !u.Version.Compatible(fwv) {
-			return nil, fmt.Errorf("versions incompatible. Update: %s, Device: %s", u.Version, fwv)
+		fw := cfg.Devices[0].Firmwares[0]
+		if !fw.Version.Compatible(fwv) {
+			return nil, fmt.Errorf("versions incompatible. Update: %s, Device: %s", fw.Version, fwv)
 		}
 
 		iapCtx.Reset(true)
@@ -342,20 +358,37 @@ func enterIAP(u *one.Update) (*iap.Context, error) {
 }
 
 func updateAction(ctx *cli.Context) error {
-	u, _, err := loadUpdateFile(ctx)
+	cfg, err := loadUpdateFile(ctx)
 	if err != nil {
 		return err
 	}
 
-	iapCtx, err := enterIAP(u)
+	iapCtx, err := enterIAP(cfg)
 	if err != nil {
 		return err
 	}
 	defer iapCtx.Reset(false)
 
-	img := u.Images[one.Internal]
+	if len(cfg.Devices) != 1 || len(cfg.Devices[0].Firmwares) != 1 {
+		// XXX: This is temporary, this command will go away entirely.
+		return errors.New("update requires a single device with a single firmware")
+	}
 
-	iapCtx.SetExtraCRCData(img.ExtraCRC)
+	img, ok := cfg.Devices[0].Firmwares[0].Images[string(config.Internal)]
+	if !ok || len(img.Data) == 0 {
+		return errors.New("no data for internal image")
+	}
+
+	if !img.XferEncoded {
+		return errors.New("update image must be XferEncoded")
+	}
+
+	if cfg.Exe == nil || len(cfg.Exe.ExtraCRC) == 0 {
+		// XXX: This is temporary, this command will get reworked
+		return errors.New("iap test requires ExtraCRC")
+	}
+
+	iapCtx.SetExtraCRCData(cfg.Exe.ExtraCRC)
 
 	info, err := iapCtx.GetInformation()
 	if err != nil {
@@ -365,6 +398,7 @@ func updateAction(ctx *cli.Context) error {
 	log.Println("Device Info:")
 	log.Println(info)
 
+	fw := cfg.Devices[0].Firmwares[0]
 	fwv, err := iapCtx.GetVersion(info)
 	if err != nil {
 		if !iap.IsVersionErased(err) {
@@ -378,8 +412,8 @@ func updateAction(ctx *cli.Context) error {
 		log.Println("!!! Version already erased. --force skipping")
 	} else {
 		log.Println("Device Version:", fwv)
-		if !u.Version.Compatible(fwv) {
-			return fmt.Errorf("versions incompatible. Update: %s, Device: %s", u.Version, fwv)
+		if !fw.Version.Compatible(fwv) {
+			return fmt.Errorf("versions incompatible. Update: %s, Device: %s", fw.Version, fwv)
 		}
 	}
 
@@ -394,11 +428,11 @@ func updateAction(ctx *cli.Context) error {
 		return err
 	}
 
-	fw := img.Data
+	data := img.Data
 	addr := info.StartAddr()
 
 	log.Println(">>> Erase program...")
-	err = iapCtx.ErasePage(addr, len(fw))
+	err = iapCtx.ErasePage(addr, len(data))
 	if err != nil {
 		return err
 	}
@@ -411,13 +445,13 @@ func updateAction(ctx *cli.Context) error {
 	log.Println(">>> Write program...")
 	i := 0
 	chunkLen := 0x34
-	for start := 0; start < len(fw); start += chunkLen {
+	for start := 0; start < len(data); start += chunkLen {
 		end := start + chunkLen
-		if end > len(fw) {
-			end = len(fw)
+		if end > len(data) {
+			end = len(data)
 		}
 
-		err = iapCtx.WriteData(addr, fw[start:end])
+		err = iapCtx.WriteData(addr, data[start:end])
 		if err != nil {
 			return err
 		}
@@ -448,7 +482,7 @@ func updateAction(ctx *cli.Context) error {
 	// CRCCheck() will drain the status buffer
 
 	log.Println(">>> Write version...")
-	err = iapCtx.WriteVersion(info, u.Version)
+	err = iapCtx.WriteVersion(info, *fw.Version)
 	if err != nil {
 		return err
 	}
@@ -472,27 +506,30 @@ func min(a, b int) int {
 }
 
 func dumpAction(ctx *cli.Context) error {
-	u, _, err := loadUpdateFile(ctx)
+	cfg, err := loadUpdateFile(ctx)
 	if err != nil {
 		return err
 	}
 
 	// Force a reset to make sure we have a clean slate
-	iapCtx, err := enterIAP(u)
+	iapCtx, err := enterIAP(cfg)
 	if err != nil {
 		return err
 	}
 	iapCtx.Reset(true)
 
-	iapCtx, err = enterIAP(u)
+	iapCtx, err = enterIAP(cfg)
 	if err != nil {
 		return err
 	}
 	defer iapCtx.Reset(false)
 
-	img := u.Images[one.Internal]
+	if cfg.Exe == nil || len(cfg.Exe.ExtraCRC) == 0 {
+		// XXX: This is temporary, this command will get reworked
+		return errors.New("iap test requires ExtraCRC")
+	}
 
-	iapCtx.SetExtraCRCData(img.ExtraCRC)
+	iapCtx.SetExtraCRCData(cfg.Exe.ExtraCRC)
 
 	info, err := iapCtx.GetInformation()
 	if err != nil {
