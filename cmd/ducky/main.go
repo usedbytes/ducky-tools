@@ -353,140 +353,21 @@ func updateAction(ctx *cli.Context) error {
 	}
 
 	if len(cfg.Devices) != 1 || len(cfg.Devices[0].Firmwares) != 1 {
-		// XXX: This is temporary, this command will go away entirely.
+		// XXX: Need to implement device (and firmware) selection
 		return errors.New("update requires a single device with a single firmware")
 	}
 
-	dev := cfg.Devices[0]
-
-	img, ok := cfg.Devices[0].Firmwares[0].Images[string(config.Internal)]
-	if !ok || len(img.Data) == 0 {
-		return errors.New("no data for internal image")
-	}
-
-	if !img.XferEncoded {
-		return errors.New("update image must be XferEncoded")
-	}
-
-	iapCtx, err := enterIAP(cfg)
-	if err != nil {
-		return err
-	}
-	defer iapCtx.Reset(false)
-
-	if len(dev.Bootloader.ExtraCRC) == 0 {
-		// XXX: This is temporary, this command will get reworked
-		return errors.New("iap test requires ExtraCRC")
-	}
-
-	iapCtx.SetExtraCRCData(dev.Bootloader.ExtraCRC)
-
-	info, err := iapCtx.GetInformation()
+	iapCtx, err := iap.NewContext(cfg.Devices[0])
 	if err != nil {
 		return err
 	}
 
-	log.Println("Device Info:")
-	log.Println(info)
-
-	fw := cfg.Devices[0].Firmwares[0]
-	fwv, err := iapCtx.GetVersion(info)
-	if err != nil {
-		if !iap.IsVersionErased(err) {
-			return err
-		}
-
-		if !ctx.Bool("force") {
-			return errors.New("version string appears to be erased. Use --force to skip this check (DANGEROUS!)")
-		}
-
-		log.Println("!!! Version already erased. --force skipping")
-	} else {
-		log.Println("Device Version:", fwv)
-		if !fw.Version.Compatible(fwv) {
-			return fmt.Errorf("versions incompatible. Update: %s, Device: %s", fw.Version, fwv)
-		}
-	}
-
-	log.Println(">>> Erase version...")
-	err = iapCtx.EraseVersion(info, ctx.Bool("force"))
+	err = iapCtx.Update(cfg.Devices[0].Firmwares[0])
 	if err != nil {
 		return err
 	}
-
-	err = iapCtx.CheckStatus(-1)
-	if err != nil {
-		return err
-	}
-
-	data := img.Data
-	addr := info.StartAddr()
-
-	log.Println(">>> Erase program...")
-	err = iapCtx.ErasePage(addr, len(data))
-	if err != nil {
-		return err
-	}
-
-	err = iapCtx.CheckStatus(1)
-	if err != nil {
-		return err
-	}
-
-	log.Println(">>> Write program...")
-	i := 0
-	chunkLen := 0x34
-	for start := 0; start < len(data); start += chunkLen {
-		end := start + chunkLen
-		if end > len(data) {
-			end = len(data)
-		}
-
-		err = iapCtx.WriteData(addr, data[start:end])
-		if err != nil {
-			return err
-		}
-
-		i++
-		if i >= 16 {
-			err = iapCtx.CheckStatus(i)
-			if err != nil {
-				return err
-			}
-			i = 0
-		}
-		addr += uint32(chunkLen)
-	}
-
-	err = iapCtx.CheckStatus(i)
-	if err != nil {
-		return err
-	}
-
-	log.Println(">>> Check CRC...")
-
-	crc := img.CheckCRC
-	_, err = iapCtx.CRCCheck(info.StartAddr(), 1, crc)
-	if err != nil {
-		return err
-	}
-	// CRCCheck() will drain the status buffer
-
-	log.Println(">>> Write version...")
-	err = iapCtx.WriteVersion(info, *fw.Version)
-	if err != nil {
-		return err
-	}
-
-	err = iapCtx.CheckStatus(1)
-	if err != nil {
-		return err
-	}
-
-	log.Println(">>> Success!")
 
 	return nil
-
 }
 
 func min(a, b int) int {
@@ -725,6 +606,12 @@ func main() {
 			},
 		},
 		{
+			Name:      "update",
+			Usage:     "Flash an update.",
+			ArgsUsage: "INPUT_FILE",
+			Action:    updateAction,
+		},
+		{
 			Name: "iap",
 			Subcommands: []*cli.Command{
 				{
@@ -732,27 +619,6 @@ func main() {
 					ArgsUsage: "INPUT_FILE",
 					Action:    iapTestAction,
 					Flags: []cli.Flag{
-						&cli.StringFlag{
-							Name:     "version",
-							Aliases:  []string{"V"},
-							Usage:    "Specify the updater version if it can't be found automatically",
-							Required: false,
-							Value:    "1.03r",
-						},
-					},
-				},
-				{
-					Name:      "update",
-					Usage:     "Flash an update.",
-					ArgsUsage: "INPUT_FILE",
-					Action:    updateAction,
-					Flags: []cli.Flag{
-						&cli.BoolFlag{
-							Name:     "force",
-							Usage:    "Don't abort if version string is already erased. Can be useful for recovery, but skips a safety check",
-							Required: false,
-							Value:    false,
-						},
 						&cli.StringFlag{
 							Name:     "version",
 							Aliases:  []string{"V"},
