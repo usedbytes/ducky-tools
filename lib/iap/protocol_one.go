@@ -13,6 +13,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sigurn/crc16"
 	"github.com/usedbytes/ducky-tools/lib/config"
+	"github.com/usedbytes/ducky-tools/lib/xor"
 	"github.com/usedbytes/log"
 )
 
@@ -644,4 +645,149 @@ func (p *ProtocolOne) ErasePage(start uint32, length int) error {
 
 	return nil
 
+}
+
+func calculateCheckCRC(data []byte) uint16 {
+	// Note: Data must *not* be XferEncoded when calling this function
+
+	// nibbles is hard-coded in the IAP code
+	nibbles := []byte{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF}
+
+	crct := crc16.MakeTable(crc16.CRC16_XMODEM)
+	crc := crc16.Checksum(data, crct)
+	crc = crc16.Update(crc, nibbles, crct)
+
+	return crc
+}
+
+func (p *ProtocolOne) Update(fw *config.Firmware) error {
+	img, ok := fw.Images[string(config.Internal)]
+	if !ok || len(img.Data) == 0 {
+		return errors.New("no data for internal image")
+	}
+
+	data := make([]byte, len(img.Data))
+	copy(data, img.Data)
+
+	checkCRC := img.CheckCRC
+	xferEncoded := img.XferEncoded
+	if checkCRC == 0 {
+		if xferEncoded {
+			if len(img.XferKey) == 0 {
+				return errors.New("if CheckCRC is not provided, image must not be XferEncoded, or XferKey must be provided")
+			}
+			xor.Decode(data, img.XferKey, false)
+			xferEncoded = false
+		}
+		checkCRC = calculateCheckCRC(data)
+		log.Verbosef("Calculated CheckCRC: 0x%04x\n", checkCRC)
+	}
+
+	if !xferEncoded {
+		if len(img.XferKey) == 0 {
+			return errors.New("image must be XferEncoded, or XferKey must be specified")
+		}
+
+		xor.Decode(data, img.XferKey, false)
+		xferEncoded = true
+	}
+
+	info, err := p.GetInformation()
+	if err != nil {
+		return err
+	}
+
+	log.Println("Device Info:")
+	log.Println(info)
+
+	fwv, err := p.GetVersion(info)
+	if err != nil {
+		if !IsVersionErased(err) {
+			return err
+		}
+
+		log.Println("!!! Version already erased.")
+	} else {
+		log.Println("Device Version:", fwv)
+		if !fw.Version.Compatible(fwv) {
+			return fmt.Errorf("versions incompatible. Update: %s, Device: %s", fw.Version, fwv)
+		}
+	}
+
+	log.Println("Erase version...")
+	err = p.EraseVersion(info, true)
+	if err != nil {
+		return err
+	}
+
+	err = p.CheckStatus(-1)
+	if err != nil {
+		return err
+	}
+
+	addr := info.StartAddr()
+
+	log.Println("Erase program...")
+	err = p.ErasePage(addr, len(data))
+	if err != nil {
+		return err
+	}
+
+	err = p.CheckStatus(1)
+	if err != nil {
+		return err
+	}
+
+	log.Println("Write program...")
+	i := 0
+	chunkLen := 0x34
+	for start := 0; start < len(data); start += chunkLen {
+		end := start + chunkLen
+		if end > len(data) {
+			end = len(data)
+		}
+
+		err = p.WriteData(addr, data[start:end])
+		if err != nil {
+			return err
+		}
+
+		i++
+		if i >= 16 {
+			err = p.CheckStatus(i)
+			if err != nil {
+				return err
+			}
+			i = 0
+		}
+		addr += uint32(chunkLen)
+	}
+
+	err = p.CheckStatus(i)
+	if err != nil {
+		return err
+	}
+
+	log.Println("Check CRC...")
+
+	_, err = p.CRCCheck(info.StartAddr(), 1, checkCRC)
+	if err != nil {
+		return err
+	}
+	// CRCCheck() will drain the status buffer
+
+	log.Println("Write version...")
+	err = p.WriteVersion(info, *fw.Version)
+	if err != nil {
+		return err
+	}
+
+	err = p.CheckStatus(1)
+	if err != nil {
+		return err
+	}
+
+	log.Println("Success!")
+
+	return nil
 }

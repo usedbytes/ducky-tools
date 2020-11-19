@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/usedbytes/ducky-tools/lib/config"
 	"github.com/usedbytes/log"
 )
 
@@ -431,4 +432,8 @@ func (p *ProtocolOne2) RawReceive() ([]byte, error) {
 	data := make([]byte, 64)
 	_, err := p.readPacket(data)
 	return data, err
+}
+
+func (p *ProtocolOne2) Update(fw *config.Firmware) error {
+	return errors.New("ProtocolOne2.Update not implemented")
 }

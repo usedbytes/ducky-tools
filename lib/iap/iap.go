@@ -4,9 +4,11 @@ package iap
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/gousb"
 	"github.com/pkg/errors"
+	"github.com/usedbytes/ducky-tools/lib/config"
 	"github.com/usedbytes/log"
 )
 
@@ -27,6 +29,121 @@ type usbContext struct {
 type Protocol interface {
 	Close()
 	Reset(toIAP bool) error
+	Update(fw *config.Firmware) error
+}
+
+type CRCProtocol interface {
+	Protocol
+	SetExtraCRCData([]byte)
+}
+
+type Context struct {
+	dev *config.Device
+	iap bool
+	proto Protocol
+}
+
+func (c *Context) usbConnect(app *config.Application) (Protocol, error) {
+	proto, err := NewContextWithProtocol(app.VID, app.PID, string(app.Protocol))
+
+	if err != nil {
+		return nil, err
+	}
+
+	if len(app.ExtraCRC) != 0 {
+		crcproto, ok := proto.(CRCProtocol)
+		if !ok {
+			proto.Close()
+			return nil, errors.New("ExtraCRC provided, but protocol doesn't support ExtraCRC")
+		}
+		crcproto.SetExtraCRCData(app.ExtraCRC)
+	}
+
+	return proto, nil
+}
+
+func (c *Context) Reset(toIap bool) error {
+	if c.proto == nil {
+		return errors.New("not connected")
+	}
+
+	if toIap && c.dev.Bootloader == nil {
+		return errors.New("reset to iap requested, but bootloader not defined")
+	} else if !toIap && c.dev.Application == nil {
+		return errors.New("reset to application requested, but application not defined")
+	}
+
+	c.proto.Reset(toIap)
+	c.proto.Close()
+	c.proto = nil
+
+	var app *config.Application
+	if toIap {
+		app = c.dev.Bootloader
+	} else {
+		app = c.dev.Application
+	}
+
+	var proto Protocol
+	var err error
+	for i := 0; i < 10; i++ {
+		time.Sleep(100 * time.Millisecond)
+		proto, err = c.usbConnect(app)
+		if err == nil {
+			break
+		}
+	}
+	if err != nil {
+		return err
+	}
+
+	c.proto = proto
+	c.iap = toIap
+
+	return nil
+}
+
+func (c *Context) Update(fw *config.Firmware) error {
+	// We always need to be in IAP to update
+	err := c.Reset(true)
+	if err != nil {
+		return err
+	}
+
+	err = c.proto.Update(fw)
+	if err != nil {
+		return err
+	}
+
+	c.Reset(false)
+
+	return nil
+}
+
+func NewContext(dev *config.Device) (*Context, error) {
+	ctx := &Context{
+		dev: dev,
+	}
+
+	var proto Protocol
+	var err error
+	if dev.Application != nil {
+		proto, err = ctx.usbConnect(dev.Application)
+	}
+
+	if proto == nil && dev.Bootloader != nil {
+		proto, err = ctx.usbConnect(dev.Bootloader)
+		if err == nil {
+			ctx.iap = true
+		}
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	ctx.proto = proto
+	return ctx, nil
 }
 
 func NewContextWithProtocol(vid, pid uint16, protocol string) (Protocol, error) {
