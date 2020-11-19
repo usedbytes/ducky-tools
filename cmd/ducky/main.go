@@ -3,6 +3,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -473,55 +474,108 @@ func dumpAction(ctx *cli.Context) error {
 }
 
 func iap2TestAction(ctx *cli.Context) error {
-	vid := ctx.Uint("vid")
-	pid := ctx.Uint("pid")
-
-	log.Println(">>> Connecting in AP mode...")
-	proto, err := iap.NewContextWithProtocol(uint16(vid), uint16(pid), "one2")
+	cfg, err := loadUpdateFile(ctx)
 	if err != nil {
 		return err
 	}
-	iapCtx := proto.(*iap.ProtocolOne2)
-	defer iapCtx.Close()
 
-	iap2Cmd := func(cmd []byte) error {
-		err := iapCtx.RawSend(cmd)
+	if len(cfg.Devices) != 1 || len(cfg.Devices[0].Firmwares) != 1 {
+		// XXX: Need to implement device (and firmware) selection
+		return errors.New("update requires a single device with a single firmware")
+	}
+
+	iapCtx, err := iap.NewContext(cfg.Devices[0])
+	if err != nil {
+		return err
+	}
+
+	proto, ok := iapCtx.Protocol().(*iap.ProtocolOne2)
+	if !ok {
+		return errors.New("wrong protocol version")
+	}
+
+	blinfo := func() error {
+		log.Println("Read Bootloader info...")
+		var info []byte
+		tmp, err := proto.ReadInfo(0)
 		if err != nil {
 			return err
 		}
+		info = append(info, tmp...)
 
-		_, err = iapCtx.RawReceive()
+		tmp, err = proto.ReadInfo(1)
 		if err != nil {
 			return err
 		}
+		info = append(info, tmp...)
+
+		log.Println(hex.Dump(info))
 
 		return nil
 	}
 
-	err = iap2Cmd([]byte{0x10, 0x02})
+	fwinfo := func() error {
+		log.Println("Read Firmware info...")
+		var info []byte
+		tmp, err := proto.ReadChunk(0)
+		if err != nil {
+			return err
+		}
+		info = append(info, tmp...)
+
+		tmp, err = proto.ReadChunk(1)
+		if err != nil {
+			return err
+		}
+		info = append(info, tmp...)
+
+		tmp, err = proto.ReadChunk(2)
+		if err != nil {
+			return err
+		}
+		info = append(info, tmp...)
+
+		log.Println(hex.Dump(info))
+
+		return nil
+	}
+
+	err = blinfo()
 	if err != nil {
 		return err
 	}
 
-	err = iap2Cmd([]byte{0x12, 0x00})
+	err = fwinfo()
 	if err != nil {
 		return err
 	}
 
-	err = iap2Cmd([]byte{0x12, 0x20})
+	log.Println("Reset to IAP mode...")
+	err = iapCtx.Reset(true)
 	if err != nil {
 		return err
 	}
 
-	err = iap2Cmd([]byte{0x12, 0x01})
+	proto, ok = iapCtx.Protocol().(*iap.ProtocolOne2)
+	if !ok {
+		return errors.New("wrong protocol version")
+	}
+
+	err = blinfo()
 	if err != nil {
 		return err
 	}
 
-	err = iap2Cmd([]byte{0x12, 0x22})
+	err = fwinfo()
 	if err != nil {
 		return err
 	}
+
+	log.Println("Reset back to AP...")
+	// For some reason, the One2 doesn't properly release on exit
+	// so bypass the Context reset, and reset via the Protocol directly
+	proto.Reset(false)
+	iapCtx.Close()
 
 	return nil
 }
@@ -618,20 +672,7 @@ func main() {
 				{
 					Name:      "test",
 					Action:    iap2TestAction,
-					Flags: []cli.Flag{
-						&cli.UintFlag{
-							Name:     "vid",
-							Usage:    "Vendor ID (VID)",
-							Required: false,
-							Value:    0x04d9,
-						},
-						&cli.UintFlag{
-							Name:     "pid",
-							Aliases:  []string{"p"},
-							Usage:    "Product ID (PID)",
-							Required: true,
-						},
-					},
+					ArgsUsage: "INPUT_FILE",
 				},
 			},
 		},
