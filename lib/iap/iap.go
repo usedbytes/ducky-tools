@@ -124,6 +124,15 @@ func (c *Context) Update(fw *config.Firmware) error {
 	return nil
 }
 
+func (c *Context) Protocol() Protocol {
+	return c.proto
+}
+
+func (c *Context) Close() {
+	c.proto.Close()
+	c.proto = nil
+}
+
 func NewContext(dev *config.Device) (*Context, error) {
 	ctx := &Context{
 		dev: dev,
