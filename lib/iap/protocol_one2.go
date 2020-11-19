@@ -353,22 +353,20 @@ func (p *ProtocolOne2) Erase() (uint32, error) {
 	return resp, nil
 }
 
-func (p *ProtocolOne2) ReadChunk(addr uint32) ([]byte, error) {
+func (p *ProtocolOne2) ReadChunk(chunk byte) ([]byte, error) {
 	if p.closed {
 		return nil, closedErr
 	}
 
 	packet := []byte{
-		0x12, 0x20, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, // Chunk
+		0x12, 0x20,
 	}
 
-	if addr % 0x3c != 0 {
-		return nil, errors.New("addr must be aligned to 0x3c")
+	if chunk >= 0x10 {
+		return nil, errors.New("addr out of range")
 	}
 
-	chunk := addr / 0x3c
-	binary.LittleEndian.PutUint32(packet[4:], chunk)
+	packet[1] = chunk + 0x20
 
 	_, err := p.sendPacket(packet)
 	if err != nil {
@@ -381,7 +379,7 @@ func (p *ProtocolOne2) ReadChunk(addr uint32) ([]byte, error) {
 		return nil, err
 	}
 
-	if bytes.Compare(packet[:4], response[:4]) != 0 {
+	if bytes.Compare(packet[:len(packet)], response[:len(packet)]) != 0 {
 		return nil, errors.New("command failed")
 	}
 
@@ -561,34 +559,19 @@ func (p *ProtocolOne2) Update(fw *config.Firmware) error {
 		}
 	}
 
-	// Read
-	iap2Cmd := func(cmd []byte) error {
-		err := p.RawSend(cmd)
+	log.Println("Check metadata...")
+	var checkMeta []byte
+
+	for i := 0; i < (len(meta.Data) + 0x3c - 1) / 0x3c; i++ {
+		tmp, err := p.ReadChunk(byte(i))
 		if err != nil {
 			return err
 		}
-
-		_, err = p.RawReceive()
-		if err != nil {
-			return err
-		}
-
-		return nil
+		checkMeta = append(checkMeta, tmp...)
 	}
 
-	err = iap2Cmd([]byte{0x12, 0x20})
-	if err != nil {
-		return err
-	}
-
-	err = iap2Cmd([]byte{0x12, 0x21})
-	if err != nil {
-		return err
-	}
-
-	err = iap2Cmd([]byte{0x12, 0x22})
-	if err != nil {
-		return err
+	if bytes.Compare(checkMeta, meta.Data) != 0 {
+		return errors.New("metadata mistmatch")
 	}
 
 	log.Println("Success!")
