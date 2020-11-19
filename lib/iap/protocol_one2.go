@@ -353,6 +353,40 @@ func (p *ProtocolOne2) Erase() (uint32, error) {
 	return resp, nil
 }
 
+func (p *ProtocolOne2) ReadInfo(page byte) ([]byte, error) {
+	if p.closed {
+		return nil, closedErr
+	}
+
+	packet := []byte{
+		0x12, 0x00,
+	}
+
+	if page >= 2 {
+		return nil, errors.New("page out of range")
+	}
+
+	packet[1] = page
+
+	_, err := p.sendPacket(packet)
+	if err != nil {
+		return nil, err
+	}
+
+	response := [0x40]byte{}
+	_, err = p.readPacket(response[:])
+	if err != nil {
+		return nil, err
+	}
+
+	if bytes.Compare(packet[:len(packet)], response[:len(packet)]) != 0 {
+		return nil, errors.New("command failed")
+	}
+
+	return response[4:], nil
+}
+
+
 func (p *ProtocolOne2) ReadChunk(chunk byte) ([]byte, error) {
 	if p.closed {
 		return nil, closedErr
