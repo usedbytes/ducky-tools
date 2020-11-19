@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/urfave/cli/v2"
@@ -159,6 +158,30 @@ func decodeAction(ctx *cli.Context) error {
 	return nil
 }
 
+func updateAction(ctx *cli.Context) error {
+	cfg, err := loadUpdateFile(ctx)
+	if err != nil {
+		return err
+	}
+
+	if len(cfg.Devices) != 1 || len(cfg.Devices[0].Firmwares) != 1 {
+		// XXX: Need to implement device (and firmware) selection
+		return errors.New("update requires a single device with a single firmware")
+	}
+
+	iapCtx, err := iap.NewContext(cfg.Devices[0])
+	if err != nil {
+		return err
+	}
+
+	err = iapCtx.Update(cfg.Devices[0].Firmwares[0])
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func devicesAction(ctx *cli.Context) error {
 	var cfg *config.Config
 	var err error
@@ -264,55 +287,7 @@ func iapTestAction(ctx *cli.Context) error {
 	return nil
 }
 
-func enterIAP(cfg *config.Config) (*iap.ProtocolOne, error) {
-	if len(cfg.Devices) != 1 || cfg.Devices[0].Application == nil || cfg.Devices[0].Bootloader == nil {
-		// XXX: This is temporary, this command will get reworked.
-		return nil, errors.New("require a single device with Application and Bootloader information")
-	}
-
-	dev := cfg.Devices[0]
-
-	vid, pid := dev.Bootloader.VID, dev.Bootloader.PID
-	proto, err := iap.NewContextWithProtocol(uint16(vid), uint16(pid), "one")
-	if err != nil {
-		v, p := dev.Application.VID, dev.Application.PID
-		proto, err = iap.NewContextWithProtocol(uint16(v), uint16(p), "one")
-		if err != nil {
-			return nil, err
-		}
-		iapCtx := proto.(*iap.ProtocolOne)
-		// This is redundant if we reach the .Reset(), but Close-ing
-		// twice is fine
-		defer iapCtx.Close()
-
-		fwv, err := iapCtx.APGetVersion()
-		if err != nil {
-			return nil, err
-		}
-		fw := cfg.Devices[0].Firmwares[0]
-		if !fw.Version.Compatible(fwv) {
-			return nil, fmt.Errorf("versions incompatible. Update: %s, Device: %s", fw.Version, fwv)
-		}
-
-		iapCtx.Reset(true)
-
-		for i := 0; i < 10; i++ {
-			time.Sleep(100 * time.Millisecond)
-			proto, err = iap.NewContextWithProtocol(uint16(vid), uint16(pid), "one")
-			if err == nil {
-				iapCtx = proto.(*iap.ProtocolOne)
-				return iapCtx, nil
-			}
-		}
-	} else {
-		iapCtx := proto.(*iap.ProtocolOne)
-		return iapCtx, nil
-	}
-
-	return nil, err
-}
-
-func updateAction(ctx *cli.Context) error {
+func iapDumpAction(ctx *cli.Context) error {
 	cfg, err := loadUpdateFile(ctx)
 	if err != nil {
 		return err
@@ -323,55 +298,35 @@ func updateAction(ctx *cli.Context) error {
 		return errors.New("update requires a single device with a single firmware")
 	}
 
-	iapCtx, err := iap.NewContext(cfg.Devices[0])
-	if err != nil {
-		return err
-	}
-
-	err = iapCtx.Update(cfg.Devices[0].Firmwares[0])
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func dumpAction(ctx *cli.Context) error {
-	cfg, err := loadUpdateFile(ctx)
-	if err != nil {
-		return err
-	}
-
-	// Force a reset to make sure we have a clean slate
-	iapCtx, err := enterIAP(cfg)
-	if err != nil {
-		return err
-	}
-	iapCtx.Reset(true)
-
-	iapCtx, err = enterIAP(cfg)
-	if err != nil {
-		return err
-	}
-	defer iapCtx.Reset(false)
-
 	dev := cfg.Devices[0]
 
-	if len(dev.Bootloader.ExtraCRC) == 0 {
-		// XXX: This is temporary, this command will get reworked
-		return errors.New("iap test requires ExtraCRC")
+	// Force a pair of resets to make sure we have a clean slate
+	iapCtx, err := iap.NewContext(dev)
+	if err != nil {
+		return err
+	}
+	err = iapCtx.Reset(true)
+	if err != nil {
+		return err
 	}
 
-	iapCtx.SetExtraCRCData(dev.Bootloader.ExtraCRC)
+	err = iapCtx.Reset(true)
+	if err != nil {
+		return err
+	}
 
-	info, err := iapCtx.GetInformation()
+	// The Context will have already applied this for us, but it must
+	// exist!
+	if len(dev.Bootloader.ExtraCRC) == 0 {
+		return errors.New("dump via CRC requires ExtraCRC")
+	}
+
+	proto, ok := iapCtx.Protocol().(*iap.ProtocolOne)
+	if !ok {
+		return errors.New("wrong protocol version")
+	}
+
+	info, err := proto.GetInformation()
 	if err != nil {
 		return err
 	}
@@ -379,7 +334,7 @@ func dumpAction(ctx *cli.Context) error {
 	log.Println("Device Info:")
 	log.Println(info)
 
-	err = iapCtx.CheckStatus(-1)
+	err = proto.CheckStatus(-1)
 	if err != nil {
 		return err
 	}
@@ -391,16 +346,12 @@ func dumpAction(ctx *cli.Context) error {
 		lu[crc] = byte(i)
 	}
 
-	if len(lu) != 256 {
-		return errors.New("CRC table isn't 256 long")
-	}
-
 	// The CRC we send has to match the expected value, which is updated in
 	// two ways:
 	// 1) On each invocation of WriteData(..., data):
 	//     crc = crc16.Update(crc, xor.Decode(data), crc16.MakeTable(crc16.CRC16_XMODEM))
 	// 2) On each invocation of CRCCheck():
-	//     crc = crc16.Update(crc, secret, crc16.MakeTable(crc16.CRC16_XMODEM))
+	//     crc = crc16.Update(crc, nibbles, crc16.MakeTable(crc16.CRC16_XMODEM))
 	// We're running on a clean reset and never call WriteData(), so we just
 	// need to update according to the CRCCheck() path.
 	//
@@ -409,8 +360,8 @@ func dumpAction(ctx *cli.Context) error {
 	// crc is initialised to zero at boot
 	crc := uint16(0)
 
-	// secret is hard-coded in the IAP code
-	secret := []byte{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF}
+	// nibbles is hard-coded in the IAP code
+	nibbles := []byte{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF}
 
 	dump := make([]byte, 16)
 
@@ -447,9 +398,9 @@ func dumpAction(ctx *cli.Context) error {
 			i = 0
 		}
 
-		crc = crc16.Update(crc, secret, crct)
+		crc = crc16.Update(crc, nibbles, crct)
 
-		xcrc, err := iapCtx.CRCCheck(uint32(addr), 1, crc)
+		xcrc, err := proto.CRCCheck(uint32(addr), 1, crc)
 		if err != nil {
 			return err
 		}
@@ -469,6 +420,10 @@ func dumpAction(ctx *cli.Context) error {
 			return errors.New("short write to outfile")
 		}
 	}
+
+	log.Println(">>> Reset back to AP...")
+	iapCtx.Reset(false)
+	iapCtx.Close()
 
 	return nil
 }
@@ -642,7 +597,7 @@ func main() {
 					Name:      "dump",
 					Usage:     "Dump memory using CheckCRC(). Note that errors may result the firmware being erased!\n\nINPUT_FILE is required for correct packet CRC calculation.",
 					ArgsUsage: "INPUT_FILE",
-					Action:    dumpAction,
+					Action:    iapDumpAction,
 					Flags: []cli.Flag{
 						&cli.IntFlag{
 							Name:     "start",
