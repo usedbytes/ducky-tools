@@ -241,7 +241,7 @@ func iapTestAction(ctx *cli.Context) error {
 		return fmt.Errorf("versions incompatible. Update: %s, Device: %s", fw.Version, fwv)
 	}
 
-	if cfg.Exe == nil || len(cfg.Exe.ExtraCRC) == 0 {
+	if len(dev.Bootloader.ExtraCRC) == 0 {
 		// XXX: This is temporary, this command will get reworked
 		return errors.New("iap test requires ExtraCRC")
 	}
@@ -268,7 +268,7 @@ func iapTestAction(ctx *cli.Context) error {
 		iapCtx.Reset(false)
 	}()
 
-	iapCtx.SetExtraCRCData(cfg.Exe.ExtraCRC)
+	iapCtx.SetExtraCRCData(dev.Bootloader.ExtraCRC)
 
 	info, err := iapCtx.GetInformation()
 	if err != nil {
@@ -357,6 +357,8 @@ func updateAction(ctx *cli.Context) error {
 		return errors.New("update requires a single device with a single firmware")
 	}
 
+	dev := cfg.Devices[0]
+
 	img, ok := cfg.Devices[0].Firmwares[0].Images[string(config.Internal)]
 	if !ok || len(img.Data) == 0 {
 		return errors.New("no data for internal image")
@@ -372,12 +374,12 @@ func updateAction(ctx *cli.Context) error {
 	}
 	defer iapCtx.Reset(false)
 
-	if cfg.Exe == nil || len(cfg.Exe.ExtraCRC) == 0 {
+	if len(dev.Bootloader.ExtraCRC) == 0 {
 		// XXX: This is temporary, this command will get reworked
 		return errors.New("iap test requires ExtraCRC")
 	}
 
-	iapCtx.SetExtraCRCData(cfg.Exe.ExtraCRC)
+	iapCtx.SetExtraCRCData(dev.Bootloader.ExtraCRC)
 
 	info, err := iapCtx.GetInformation()
 	if err != nil {
@@ -513,12 +515,14 @@ func dumpAction(ctx *cli.Context) error {
 	}
 	defer iapCtx.Reset(false)
 
-	if cfg.Exe == nil || len(cfg.Exe.ExtraCRC) == 0 {
+	dev := cfg.Devices[0]
+
+	if len(dev.Bootloader.ExtraCRC) == 0 {
 		// XXX: This is temporary, this command will get reworked
 		return errors.New("iap test requires ExtraCRC")
 	}
 
-	iapCtx.SetExtraCRCData(cfg.Exe.ExtraCRC)
+	iapCtx.SetExtraCRCData(dev.Bootloader.ExtraCRC)
 
 	info, err := iapCtx.GetInformation()
 	if err != nil {

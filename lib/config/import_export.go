@@ -63,32 +63,41 @@ func (fw *Firmware) GenerateFilenames() {
 	}
 }
 
-func (exe *Exe) GenerateFilenames() {
-	if len(exe.ExtraCRC) == 0 {
+func (app *Application) GenerateFilenames(name string) {
+	if len(app.ExtraCRC) == 0 {
 		return
 	}
 
-	var parts []string
+	parts := []string{}
+	if len(name) == 0 {
+		parts = append(parts, name)
+	}
 
+	parts = append(parts, fmt.Sprintf("%04x_%04x", app.VID, app.PID))
 	parts = append(parts, "extracrc")
+	parts = append(parts, fmt.Sprintf("%08x", crc32.Checksum(app.ExtraCRC, crc32.IEEETable)))
 
-	if len(exe.Name) != 0 {
-		parts = append(parts, exe.Name)
-	}
-	if exe.IAPVersion != nil {
-		parts = append(parts, exe.IAPVersion.String())
-	}
-
-	base := strings.Join(parts, "_")
-
-	hash := crc32.Checksum(exe.ExtraCRC, crc32.IEEETable)
-	fname := fmt.Sprintf("%s.%08x.bin", base, hash)
-	exe.ExtraCRCFile = replaceFilenameChars(fname)
+	fname := strings.Join(parts, "_") + ".bin"
+	app.ExtraCRCFile = replaceFilenameChars(fname)
 }
 
-func (exe *Exe) LoadData() error {
-	if len(exe.ExtraCRCFile) != 0 {
-		f, err := os.Open(exe.ExtraCRCFile)
+func (dev *Device) GenerateFilenames() {
+	if dev.Application != nil {
+		dev.Application.GenerateFilenames(dev.Name)
+	}
+
+	if dev.Bootloader != nil {
+		dev.Bootloader.GenerateFilenames(dev.Name)
+	}
+
+	for _, fw := range dev.Firmwares {
+		fw.GenerateFilenames()
+	}
+}
+
+func (app *Application) LoadData() error {
+	if len(app.ExtraCRCFile) != 0 {
+		f, err := os.Open(app.ExtraCRCFile)
 		if err != nil {
 			return err
 		}
@@ -98,25 +107,25 @@ func (exe *Exe) LoadData() error {
 		if err != nil {
 			return err
 		}
-		exe.ExtraCRC = data
+		app.ExtraCRC = data
 	}
 
 	return nil
 }
 
-func (exe *Exe) WriteData() error {
-	if len(exe.ExtraCRC) != 0 {
-		if len(exe.ExtraCRCFile) == 0 {
+func (app *Application) WriteData() error {
+	if len(app.ExtraCRC) != 0 {
+		if len(app.ExtraCRCFile) == 0 {
 			return errors.New("can't write ExtraCRC - no filename")
 		}
 
-		f, err := os.Create(exe.ExtraCRCFile)
+		f, err := os.Create(app.ExtraCRCFile)
 		if err != nil {
 			return err
 		}
 
-		n, err := f.Write(exe.ExtraCRC)
-		if n != len(exe.ExtraCRC) {
+		n, err := f.Write(app.ExtraCRC)
+		if n != len(app.ExtraCRC) {
 			f.Close()
 			return errors.New("short write for ExtraCRC")
 		} else if err != nil {
@@ -220,14 +229,21 @@ func (img *Image) WriteData() error {
 }
 
 func (c *Config) LoadData() error {
-	if c.Exe != nil {
-		err := c.Exe.LoadData()
-		if err != nil {
-			return err
-		}
-	}
+	var err error
 
 	for _, dev := range c.Devices {
+		if dev.Application != nil {
+			err = dev.Application.LoadData()
+			if err != nil {
+				return err
+			}
+		}
+		if dev.Bootloader != nil {
+			err = dev.Bootloader.LoadData()
+			if err != nil {
+				return err
+			}
+		}
 		for _, fw := range dev.Firmwares {
 			for _, img := range fw.Images {
 				err := img.LoadData()
@@ -242,14 +258,21 @@ func (c *Config) LoadData() error {
 }
 
 func (c *Config) WriteData() error {
-	if c.Exe != nil {
-		err := c.Exe.WriteData()
-		if err != nil {
-			return err
-		}
-	}
+	var err error
 
 	for _, dev := range c.Devices {
+		if dev.Application != nil {
+			err = dev.Application.WriteData()
+			if err != nil {
+				return err
+			}
+		}
+		if dev.Bootloader != nil {
+			err = dev.Bootloader.WriteData()
+			if err != nil {
+				return err
+			}
+		}
 		for _, fw := range dev.Firmwares {
 			for _, img := range fw.Images {
 				err := img.WriteData()

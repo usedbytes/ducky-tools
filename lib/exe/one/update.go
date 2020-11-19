@@ -68,12 +68,11 @@ func (u *Update) ToConfig() *config.Config {
 		// images? The file structure allows it, even if the bootloader
 		// doesn't
 		if v.ExtraCRC != nil {
-			cfg.Exe.ExtraCRC = v.ExtraCRC
+			cfg.Devices[0].Bootloader.ExtraCRC = v.ExtraCRC
 		}
 	}
 
-	cfg.Devices[0].Firmwares[0].GenerateFilenames()
-	cfg.Exe.GenerateFilenames()
+	cfg.Devices[0].GenerateFilenames()
 
 	return cfg
 }

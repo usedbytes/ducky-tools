@@ -18,8 +18,6 @@ type Exe struct {
 	Name         string      `toml:"name"`
 	IAPVersion   *IAPVersion `toml:"iap_version,omitempty"`
 	FileKey      uint32      `toml:"file_key,omitempty"`
-	ExtraCRCFile string      `toml:"extra_crc_data_file,omitempty"`
-	ExtraCRC     []byte      `toml:"-"`
 	ByteSwapping bool        `toml:"byte_swapping"`
 }
 
@@ -33,7 +31,6 @@ func (e *Exe) String() string {
 	if e.FileKey != 0 {
 		s += fmt.Sprintf("   FileKey: 0x%08x\n", e.FileKey)
 	}
-	s += stringIfNotEmpty("   ExtraCRCFile:", e.ExtraCRCFile)
 	s += fmt.Sprintf("   ByteSwapping: %s\n", strconv.FormatBool(e.ByteSwapping))
 	return s
 }
@@ -49,6 +46,7 @@ func (d *Device) String() string {
 	var s string
 	s += "Device:\n"
 	s += stringIfNotEmpty("   Name:", d.Name)
+	// TODO: nil check on Applications.
 	s += fmt.Sprintf("   AP VID:PID: 0x%04x:0x%04x\n", d.Application.VID, d.Application.PID)
 	s += fmt.Sprintf("   IAP VID:PID: 0x%04x:0x%04x\n", d.Bootloader.VID, d.Bootloader.PID)
 	// TODO: Indentation for Firmwares.
@@ -59,9 +57,11 @@ func (d *Device) String() string {
 }
 
 type Application struct {
-	VID      uint16   `toml:"vid"`
-	PID      uint16   `toml:"pid"`
-	Protocol Protocol `toml:"protocol,omitempty"`
+	VID          uint16   `toml:"vid"`
+	PID          uint16   `toml:"pid"`
+	Protocol     Protocol `toml:"protocol,omitempty"`
+	ExtraCRCFile string   `toml:"extra_crc_data_file,omitempty"`
+	ExtraCRC     []byte   `toml:"-"`
 }
 
 type Firmware struct {
