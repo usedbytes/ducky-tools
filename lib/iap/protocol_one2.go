@@ -11,6 +11,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/usedbytes/ducky-tools/lib/config"
+	"github.com/usedbytes/ducky-tools/lib/xor"
 	"github.com/usedbytes/log"
 )
 
@@ -435,5 +436,162 @@ func (p *ProtocolOne2) RawReceive() ([]byte, error) {
 }
 
 func (p *ProtocolOne2) Update(fw *config.Firmware) error {
-	return errors.New("ProtocolOne2.Update not implemented")
+	internal, ok := fw.Images[string(config.Internal)]
+	if !ok || len(internal.Data) == 0 {
+		return errors.New("no data for internal image")
+	}
+
+	meta, ok := fw.Images[string(config.Metadata)]
+	if !ok || len(meta.Data) == 0 {
+		return errors.New("no data for metadata image")
+	}
+
+	if meta.XferEncoded {
+		return errors.New("metadata image should not be XferEncoded")
+	}
+
+	data := make([]byte, len(internal.Data))
+	copy(data, internal.Data)
+
+	if !internal.XferEncoded {
+		if len(internal.XferKey) == 0 {
+			return errors.New("image must be XferEncoded, or XferKey must be specified")
+		}
+
+		xor.Decode(data, internal.XferKey, false)
+	}
+
+	expected := Checksum(data)
+
+	// Erase
+	log.Println("Erase...")
+	val, err := p.Erase()
+	if err != nil {
+		return err
+	}
+	log.Verbosef("Erase response: %x\n", val)
+
+	err = p.SetWritePointer(0x0400)
+	if err != nil {
+		return err
+	}
+
+	// Get write pointer, check 0x0400
+	val, err = p.GetWritePointer()
+	if err != nil {
+		return err
+	}
+
+	log.Verbosef("Write pointer: %x\n", val)
+	if val != 0x0400 {
+		return errors.New("unexpected write pointer")
+	}
+
+	// Write data, check returned value is addr + len(data)
+	log.Println("Write program...")
+	cursor := uint32(0x400)
+	packetLen := 0x34
+	numChunks := (len(data) + (packetLen - 1)) / packetLen
+	for i := 0; i < numChunks; i++ {
+		start := i * packetLen
+		end := (i + 1) * packetLen
+		if end > len(data) {
+			end = len(data)
+		}
+
+		resp, err := p.Write(data[start:end])
+		if err != nil {
+			return err
+		}
+
+		cursor += uint32(end - start)
+		if resp != cursor {
+			return errors.New("unexpected cursor response")
+		}
+	}
+
+	// Checksum, check against data.
+	log.Println("Validate checksum...")
+	csum, err := p.Checksum(0x400, uint32(len(data)))
+	if err != nil {
+		return err
+	}
+
+	log.Verbosef("Checksum: %08x\n", csum)
+	if csum != expected {
+		return errors.New("checksum mismatch")
+	}
+
+	// Set write pointer 0x000
+	err = p.SetWritePointer(0x000)
+	if err != nil {
+		return err
+	}
+
+	// Get write pointer, check 0x000
+	val, err = p.GetWritePointer()
+	if err != nil {
+		return err
+	}
+
+	log.Verbosef("Write pointer: %x\n", val)
+	if val != 0x00 {
+		return errors.New("unexpected write pointer")
+	}
+
+	// Write header
+	log.Println("Write metadata...")
+	cursor = uint32(0x0)
+	numChunks = (len(meta.Data) + (packetLen - 1)) / packetLen
+	for i := 0; i < numChunks; i++ {
+		start := i * packetLen
+		end := (i + 1) * packetLen
+		if end > len(meta.Data) {
+			end = len(meta.Data)
+		}
+
+		resp, err := p.Write(meta.Data[start:end])
+		if err != nil {
+			return err
+		}
+
+		cursor += uint32(end - start)
+		if resp != cursor {
+			return errors.New("unexpected cursor response")
+		}
+	}
+
+	// Read
+	iap2Cmd := func(cmd []byte) error {
+		err := p.RawSend(cmd)
+		if err != nil {
+			return err
+		}
+
+		_, err = p.RawReceive()
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	err = iap2Cmd([]byte{0x12, 0x20})
+	if err != nil {
+		return err
+	}
+
+	err = iap2Cmd([]byte{0x12, 0x21})
+	if err != nil {
+		return err
+	}
+
+	err = iap2Cmd([]byte{0x12, 0x22})
+	if err != nil {
+		return err
+	}
+
+	log.Println("Success!")
+
+	return nil
 }

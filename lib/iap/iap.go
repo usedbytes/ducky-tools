@@ -115,7 +115,11 @@ func (c *Context) Update(fw *config.Firmware) error {
 		return err
 	}
 
-	c.Reset(false)
+	// Note: Not c.Reset() because that re-connects, and we don't want
+	// that
+	c.proto.Reset(false)
+	c.proto.Close()
+	c.proto = nil
 
 	return nil
 }
