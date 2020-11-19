@@ -208,69 +208,37 @@ func iapTestAction(ctx *cli.Context) error {
 		return errors.New("iap test requires a single device with Application and Bootloader information")
 	}
 
-	dev := cfg.Devices[0]
-
-	vid, pid := dev.Application.VID, dev.Application.PID
-
-	log.Println(">>> Connecting in AP mode...")
-	proto, err := iap.NewContextWithProtocol(uint16(vid), uint16(pid), "one")
+	log.Println(">>> Connecting...")
+	iapCtx, err := iap.NewContext(cfg.Devices[0])
 	if err != nil {
 		return err
 	}
-	iapCtx := proto.(*iap.ProtocolOne)
-	defer iapCtx.Close()
 
-	log.Print(">>> Attempt Ping... ")
-	pong, err := iapCtx.Ping(42)
-	if err != nil {
-		return err
-	} else if !pong{
-		return errors.New("invalid or no response to ping")
+	proto, ok := iapCtx.Protocol().(*iap.ProtocolOne)
+	if !ok {
+		return errors.New("wrong protocol version")
 	}
-	log.Println("pong")
 
 	log.Println(">>> Get Version:")
-	fwv, err := iapCtx.APGetVersion()
+	fwv, err := proto.APGetVersion()
 	if err != nil {
 		return err
 	}
 
 	log.Println(fwv)
-	fw := cfg.Devices[0].Firmwares[0]
-	if !fw.Version.Compatible(fwv) {
-		return fmt.Errorf("versions incompatible. Update: %s, Device: %s", fw.Version, fwv)
-	}
-
-	if len(dev.Bootloader.ExtraCRC) == 0 {
-		// XXX: This is temporary, this command will get reworked
-		return errors.New("iap test requires ExtraCRC")
-	}
 
 	log.Println(">>> Reset to IAP mode...")
-	iapCtx.Reset(false)
-
-	log.Println(">>> Connecting in IAP mode...")
-	vid, pid = dev.Bootloader.VID, dev.Bootloader.PID
-	for i := 0; i < 10; i++ {
-		time.Sleep(100 * time.Millisecond)
-		proto, err = iap.NewContextWithProtocol(uint16(vid), uint16(pid), "one")
-		if err == nil {
-			break
-		}
-	}
+	err = iapCtx.Reset(true)
 	if err != nil {
 		return err
 	}
-	iapCtx = proto.(*iap.ProtocolOne)
 
-	defer func() {
-		log.Println("Reset back to AP mode...")
-		iapCtx.Reset(false)
-	}()
+	proto, ok = iapCtx.Protocol().(*iap.ProtocolOne)
+	if !ok {
+		return errors.New("wrong protocol version")
+	}
 
-	iapCtx.SetExtraCRCData(dev.Bootloader.ExtraCRC)
-
-	info, err := iapCtx.GetInformation()
+	info, err := proto.GetInformation()
 	if err != nil {
 		return err
 	}
@@ -278,7 +246,7 @@ func iapTestAction(ctx *cli.Context) error {
 	log.Println(">>> Info:")
 	log.Println(info.String())
 
-	fwv2, err := iapCtx.GetVersion(info)
+	fwv2, err := proto.GetVersion(info)
 	if err != nil {
 		return err
 	}
@@ -288,12 +256,9 @@ func iapTestAction(ctx *cli.Context) error {
 		return fmt.Errorf("version inconsistent. AP: %s, IAP: %s", fwv, fwv2)
 	}
 
-	log.Print(">>> Attempt Ping (should time out)... ")
-	pong, err = iapCtx.Ping(42)
-	if pong && err != nil {
-		return errors.New("Ping() shouldn't work in IAP mode")
-	}
-	log.Println("timed out")
+	log.Println(">>> Reset back to AP...")
+	iapCtx.Reset(false)
+	iapCtx.Close()
 
 	return nil
 }
@@ -618,15 +583,6 @@ func main() {
 					Name:      "test",
 					ArgsUsage: "INPUT_FILE",
 					Action:    iapTestAction,
-					Flags: []cli.Flag{
-						&cli.StringFlag{
-							Name:     "version",
-							Aliases:  []string{"V"},
-							Usage:    "Specify the updater version if it can't be found automatically",
-							Required: false,
-							Value:    "1.03r",
-						},
-					},
 				},
 				{
 					Name:      "dump",
