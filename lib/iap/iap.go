@@ -86,13 +86,16 @@ func (c *Context) Reset(toIap bool) error {
 
 	var proto Protocol
 	var err error
+	log.Printf("Reconnect... ")
 	for i := 0; i < 10; i++ {
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(1000 * time.Millisecond)
+		log.Printf(".")
 		proto, err = c.usbConnect(app)
 		if err == nil {
 			break
 		}
 	}
+	log.Printf("\n")
 	if err != nil {
 		return err
 	}
